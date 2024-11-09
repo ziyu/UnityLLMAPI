@@ -1,108 +1,131 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 using System.Collections.Generic;
 using UnityLLMAPI.Services;
 using UnityLLMAPI.Models;
-using TMPro;
 
 namespace UnityLLMAPI.Examples
 {
     /// <summary>
-    /// Example MonoBehaviour showing how to use the OpenAI API plugin
+    /// Example chat implementation using Unity LLM API
     /// </summary>
     public class ChatExample : MonoBehaviour
     {
-        [SerializeField]
-        private TMP_InputField userInputField;
+        [Header("UI References")]
+        [Tooltip("Input field for user messages")]
+        [SerializeField] private TMP_InputField userInputField;
         
-        [SerializeField]
-        private TMP_Text responseText;
+        [Tooltip("Text area for displaying chat history")]
+        [SerializeField] private TMP_Text chatHistoryText;
         
-        [SerializeField]
-        private Button sendButton;
+        [Tooltip("Button to send messages")]
+        [SerializeField] private Button sendButton;
+
+        [Header("Chat Settings")]
+        [Tooltip("System message to set AI behavior")]
+        [SerializeField] private string systemMessage = "You are a helpful assistant. Please provide clear and concise responses.";
 
         private OpenAIService openAIService;
         private List<ChatMessage> chatHistory;
+        private bool isProcessing = false;
 
         private void Start()
         {
-            // Initialize the service
+            // Initialize service and chat history
             openAIService = new OpenAIService();
             chatHistory = new List<ChatMessage>();
 
-            // Add a system message to set the context
-            chatHistory.Add(OpenAIService.CreateSystemMessage(
-                "You are a helpful assistant. Please provide clear and concise responses."
-            ));
+            // Add system message
+            chatHistory.Add(OpenAIService.CreateSystemMessage(systemMessage));
 
-            // Setup UI
+            // Setup UI event listeners
             if (sendButton != null)
-            {
                 sendButton.onClick.AddListener(SendMessage);
+
+            if (userInputField != null)
+            {
+                userInputField.onSubmit.AddListener(_ => SendMessage());
             }
+
+            // Initial UI state
+            UpdateUIState();
         }
 
         public async void SendMessage()
         {
-            if (string.IsNullOrEmpty(userInputField.text))
+            if (isProcessing || string.IsNullOrEmpty(userInputField?.text))
                 return;
 
             try
             {
-                // Disable input while processing
-                SetInteractable(false);
-                
-                // Add user message to history
+                isProcessing = true;
+                UpdateUIState();
+
+                // Get user input and clear input field
                 string userMessage = userInputField.text;
-                chatHistory.Add(OpenAIService.CreateUserMessage(userMessage));
-                
-                // Clear input field
                 userInputField.text = "";
-                
-                // Update display
-                DisplayChatHistory();
-                
-                // Get response from API
+
+                // Add user message to history
+                chatHistory.Add(OpenAIService.CreateUserMessage(userMessage));
+                UpdateChatDisplay();
+
+                // Get AI response
                 string response = await openAIService.ChatCompletion(chatHistory);
-                
-                // Add response to history
+
+                // Add AI response to history
                 chatHistory.Add(OpenAIService.CreateAssistantMessage(response));
-                
-                // Update display
-                DisplayChatHistory();
+                UpdateChatDisplay();
             }
             catch (System.Exception e)
             {
-                Debug.LogError($"Error sending message: {e.Message}");
-                responseText.text = "Error: Could not get response from API";
+                Debug.LogError($"Error in chat: {e.Message}");
+                chatHistoryText.text += "\n<color=red>Error: Failed to get response from AI.</color>\n";
             }
             finally
             {
-                // Re-enable input
-                SetInteractable(true);
+                isProcessing = false;
+                UpdateUIState();
             }
         }
 
-        private void DisplayChatHistory()
+        private void UpdateChatDisplay()
         {
+            if (chatHistoryText == null) return;
+
             string display = "";
             foreach (var message in chatHistory)
             {
                 if (message.role != "system") // Don't display system messages
                 {
                     string role = char.ToUpper(message.role[0]) + message.role.Substring(1);
-                    display += $"{role}: {message.content}\n\n";
+                    display += $"<b>{role}:</b> {message.content}\n\n";
                 }
             }
-            responseText.text = display;
+            chatHistoryText.text = display;
         }
 
-        private void SetInteractable(bool interactable)
+        private void UpdateUIState()
         {
-            if (userInputField != null)
-                userInputField.interactable = interactable;
             if (sendButton != null)
-                sendButton.interactable = interactable;
+                sendButton.interactable = !isProcessing;
+            if (userInputField != null)
+            {
+                userInputField.interactable = !isProcessing;
+                userInputField.placeholder.GetComponent<TMP_Text>().text = 
+                    isProcessing ? "Waiting for response..." : "Type your message...";
+            }
+        }
+
+        private void OnValidate()
+        {
+            // Validate required components
+            if (userInputField == null)
+                Debug.LogWarning("ChatExample: User Input Field reference is missing");
+            if (chatHistoryText == null)
+                Debug.LogWarning("ChatExample: Chat History Text reference is missing");
+            if (sendButton == null)
+                Debug.LogWarning("ChatExample: Send Button reference is missing");
         }
     }
 }
