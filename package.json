@@ -1,0 +1,29 @@
+{
+  "name": "com.zy.llmapi",
+  "version": "1.0.0",
+  "displayName": "Unity LLM API",
+  "description": "A Unity plugin for interacting with OpenAI and other Language Model APIs",
+  "unity": "2021.3",
+  "keywords": [
+    "openai",
+    "gpt",
+    "api",
+    "llm",
+    "ai"
+  ],
+  "author": {
+    "name": "zy",
+    "email": "liziyu1209@gmail.com",
+    "url": ""
+  },
+  "dependencies": {
+    "com.unity.textmeshpro": "3.0.6"
+  },
+  "samples": [
+    {
+      "displayName": "Basic Chat",
+      "description": "Basic chat example using Unity LLM API",
+      "path": "Samples~/BasicChat"
+    }
+  ]
+}
