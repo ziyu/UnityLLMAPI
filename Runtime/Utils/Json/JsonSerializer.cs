@@ -1,10 +1,11 @@
 using System;
 using System.Text;
 using System.Collections;
+using System.Collections.Generic;
 
 namespace UnityLLMAPI.Utils.Json
 {
-    internal static class JsonSerializer
+    public static class JsonSerializer
     {
         public static string Serialize(object value)
         {
@@ -39,6 +40,9 @@ namespace UnityLLMAPI.Utils.Json
                     break;
                 case Array arr:
                     SerializeArray(arr, sb);
+                    break;
+                case IDictionary dict:
+                    SerializeDictionary(dict, sb);
                     break;
                 case IEnumerable enumerable:
                     SerializeEnumerable(enumerable, sb);
@@ -113,6 +117,32 @@ namespace UnityLLMAPI.Utils.Json
             sb.Append(']');
         }
 
+        private static void SerializeDictionary(IDictionary dict, StringBuilder sb)
+        {
+            sb.Append('{');
+            bool first = true;
+            
+            foreach (DictionaryEntry entry in dict)
+            {
+                if (!first) sb.Append(',');
+                
+                // 键必须是字符串类型
+                if (entry.Key is string key)
+                {
+                    SerializeString(key, sb);
+                    sb.Append(':');
+                    SerializeValue(entry.Value, sb);
+                    first = false;
+                }
+                else
+                {
+                    throw new JsonException("Dictionary key must be string type");
+                }
+            }
+            
+            sb.Append('}');
+        }
+
         private static void SerializeObject(object obj, StringBuilder sb)
         {
             sb.Append('{');
@@ -124,7 +154,7 @@ namespace UnityLLMAPI.Utils.Json
                 var value = field.GetValue(obj);
                 
                 // Only include the field if it's not null or if it's a non-string type
-                if (value != null || field.FieldType != typeof(string))
+                if (value != null)
                 {
                     if (!first) sb.Append(',');
                     SerializeString(field.Name, sb);

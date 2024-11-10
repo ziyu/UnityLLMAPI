@@ -72,40 +72,46 @@ namespace UnityLLMAPI.Examples
             {
                 new Tool
                 {
-                    name = "get_current_time",
-                    description = "Get the current time",
-                    parameters = new ToolParameters
+                    type = "function",
+                    function = new ToolFunction
                     {
-                        type = "object",
-                        properties = new ToolParameterProperty[]
+                        name = "get_current_time",
+                        description = "Get the current time",
+                        parameters = new ToolParameters
                         {
-                            new ToolParameterProperty
+                            type = "object",
+                            properties = new Dictionary<string, ToolParameterProperty>()
                             {
-                                name = "format",
-                                type = "string",
-                                description = "The format to return the time in (e.g., 'HH:mm', 'hh:mm tt')"
-                            }
-                        },
-                        required = new string[] { "format" }
+                                ["format"] = new()
+                                {
+                                    type = "string",
+                                    description = "The format to return the time in (e.g., 'HH:mm', 'hh:mm tt')"
+                                }
+                            },
+                            required = new string[] { "format" }
+                        }
                     }
                 },
                 new Tool
                 {
-                    name = "get_weather",
-                    description = "Get the current weather",
-                    parameters = new ToolParameters
+                    type = "function",
+                    function = new ToolFunction
                     {
-                        type = "object",
-                        properties = new ToolParameterProperty[]
+                        name = "get_weather",
+                        description = "Get the current weather",
+                        parameters = new ToolParameters
                         {
-                            new ToolParameterProperty
+                            type = "object",
+                            properties = new Dictionary<string, ToolParameterProperty>()
                             {
-                                name = "location",
-                                type = "string",
-                                description = "The location to get weather for"
-                            }
-                        },
-                        required = new string[] { "location" }
+                                ["location"] = new()
+                                {
+                                    type = "string",
+                                    description = "The location to get weather for"
+                                }
+                            },
+                            required = new string[] { "location" }
+                        }
                     }
                 }
             };
@@ -143,7 +149,6 @@ namespace UnityLLMAPI.Examples
         private void DrawChatWindow(int windowID)
         {
             GUILayout.BeginVertical();
-
 
             // Error message display
             if (!string.IsNullOrEmpty(errorMessage))

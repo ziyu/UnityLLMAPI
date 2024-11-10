@@ -4,7 +4,7 @@ using System.Reflection;
 
 namespace UnityLLMAPI.Utils.Json
 {
-    internal static class JsonDeserializer
+    public static class JsonDeserializer
     {
         public static T Deserialize<T>(string json) where T : class, new()
         {
@@ -28,7 +28,12 @@ namespace UnityLLMAPI.Utils.Json
             switch (current)
             {
                 case '"': return reader.ReadString();
-                case '{': return DeserializeObject(type, reader);
+                case '{':
+                    if (IsDictionaryType(type))
+                    {
+                        return DeserializeDictionary(type, reader);
+                    }
+                    return DeserializeObject(type, reader);
                 case '[': return DeserializeArray(type, reader);
                 case 't':
                 case 'f': return reader.ReadBoolean();
@@ -50,6 +55,55 @@ namespace UnityLLMAPI.Utils.Json
                 default:
                     throw new JsonException($"Unexpected character in JSON: {current}");
             }
+        }
+
+        private static bool IsDictionaryType(Type type)
+        {
+            if (type.IsGenericType)
+            {
+                var genericType = type.GetGenericTypeDefinition();
+                return genericType == typeof(Dictionary<,>) &&
+                       type.GetGenericArguments()[0] == typeof(string);
+            }
+            return false;
+        }
+
+        private static object DeserializeDictionary(Type type, JsonReader reader)
+        {
+            reader.Expect('{');
+            
+            // 获取Dictionary的值类型参数
+            Type[] genericArgs = type.GetGenericArguments();
+            Type valueType = genericArgs[1];
+            
+            // 创建Dictionary实例
+            var dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
+            var dictionary = Activator.CreateInstance(dictionaryType);
+            var addMethod = dictionaryType.GetMethod("Add");
+            
+            while (true)
+            {
+                reader.SkipWhitespace();
+                if (reader.Peek() == '}')
+                {
+                    reader.Read();
+                    break;
+                }
+                
+                if (reader.Peek() == ',')
+                {
+                    reader.Read();
+                    continue;
+                }
+                
+                string key = reader.ReadString();
+                reader.Expect(':');
+                
+                object value = DeserializeValue(valueType, reader);
+                addMethod.Invoke(dictionary, new[] { key, value });
+            }
+            
+            return dictionary;
         }
 
         private static object DeserializeObject(Type type, JsonReader reader)

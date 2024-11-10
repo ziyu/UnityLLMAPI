@@ -1,21 +1,39 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace UnityLLMAPI.Models
 {
     /// <summary>
-    /// Represents a tool/function that can be called by the language model
+    /// Represents a tool that can be called by the language model
     /// </summary>
     [Serializable]
     public class Tool
     {
         /// <summary>
-        /// The name of the tool
+        /// The type of the tool (currently only "function" is supported)
+        /// </summary>
+        public string type = "function";
+
+        /// <summary>
+        /// The function details
+        /// </summary>
+        public ToolFunction function;
+    }
+
+    /// <summary>
+    /// Represents the function details of a tool
+    /// </summary>
+    [Serializable]
+    public class ToolFunction
+    {
+        /// <summary>
+        /// The name of the function
         /// </summary>
         public string name;
 
         /// <summary>
-        /// Description of what the tool does
+        /// Description of what the function does
         /// </summary>
         public string description;
 
@@ -39,7 +57,7 @@ namespace UnityLLMAPI.Models
         /// <summary>
         /// Properties of the parameters
         /// </summary>
-        public ToolParameterProperty[] properties;
+        public Dictionary<string,ToolParameterProperty> properties;
 
         /// <summary>
         /// Required property names
@@ -54,11 +72,6 @@ namespace UnityLLMAPI.Models
     public class ToolParameterProperty
     {
         /// <summary>
-        /// Name of the property
-        /// </summary>
-        public string name;
-
-        /// <summary>
         /// Type of the property (string, number, boolean, etc.)
         /// </summary>
         public string type;
@@ -67,6 +80,11 @@ namespace UnityLLMAPI.Models
         /// Description of the property
         /// </summary>
         public string description;
+
+        /// <summary>
+        /// Enumeration of allowed values (optional)
+        /// </summary>
+        public string[] @enum;
     }
 
     /// <summary>

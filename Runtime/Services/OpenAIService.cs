@@ -1,6 +1,8 @@
 using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using UnityEngine;
 using UnityLLMAPI.Config;
 using UnityLLMAPI.Models;
@@ -96,22 +98,46 @@ namespace UnityLLMAPI.Services
             }
             return ChatMessage.CreateToolResponse(toolCallId, functionName, content);
         }
-
-        /// <summary>
-        /// Convert a ToolCallChunk to a ToolCall
-        /// </summary>
-        private ToolCall ConvertToolCallChunk(ToolCallChunk chunk)
+        
+        
+        private ToolCall[] MergeToolCallChunks(List<ToolCallChunk> chunks)
         {
-            return new ToolCall
+            Dictionary<int, ToolCall> indexedToolCalls = new();
+            Dictionary<int, StringBuilder> indexedToolCallArgs = new();
+            foreach (var chunk in chunks)
             {
-                id = chunk.id,
-                type = chunk.type,
-                function = new ToolCallFunction
+                if (!indexedToolCalls.TryGetValue(chunk.index, out var toolCall))
                 {
-                    name = chunk.function?.name,
-                    arguments = chunk.function?.arguments
+                    toolCall = new();
+                    toolCall.type = chunk.type;
+                    toolCall.function = new();
+                    indexedToolCalls[chunk.index] = toolCall;
+                    StringBuilder sb = new();
+                    indexedToolCallArgs[chunk.index] = sb;
                 }
-            };
+
+                if (!string.IsNullOrEmpty(chunk.id))
+                {
+                    toolCall.id = chunk.id;
+                }
+
+                if (chunk.function?.name != null)
+                {
+                    toolCall.function.name = chunk.function.name;
+                }
+
+                if (chunk.function?.arguments != null)
+                {
+                    indexedToolCallArgs[chunk.index].Append(chunk.function?.arguments);
+                }
+            }
+
+            foreach (var (index,toolCall) in indexedToolCalls)
+            {
+                toolCall.function.arguments=indexedToolCallArgs[index].ToString();
+            }
+            
+            return indexedToolCalls.Values.ToArray();
         }
 
         /// <summary>
@@ -256,40 +282,6 @@ namespace UnityLLMAPI.Services
                     if (jsonData == "[DONE]")
                     {
                         LLMLogging.Log("Stream completed", LogType.Log);
-                        // Handle tool calls if present
-                        if (toolHandler != null && currentToolCallChunks.Count > 0)
-                        {
-                            LLMLogging.Log($"Processing {currentToolCallChunks.Count} tool calls from stream", LogType.Log);
-                            var toolResponses = new List<ChatMessage>(messages);
-                            toolResponses.Add(currentMessage);
-
-                            foreach (var toolCallChunk in currentToolCallChunks)
-                            {
-                                try
-                                {
-                                    if (string.IsNullOrEmpty(toolCallChunk.function?.name))
-                                    {
-                                        throw new LLMValidationException("Tool call function name cannot be empty", "function.name");
-                                    }
-
-                                    var toolCall = ConvertToolCallChunk(toolCallChunk);
-                                    LLMLogging.Log($"Executing tool: {toolCall.function.name}", LogType.Log);
-                                    string toolResult = await toolHandler(toolCall);
-                                    toolResponses.Add(CreateValidatedToolResponse(
-                                        toolCall.id,
-                                        toolCall.function.name,
-                                        toolResult
-                                    ));
-                                }
-                                catch (Exception e)
-                                {
-                                    throw new LLMToolException($"Tool execution failed: {e.Message}", toolCallChunk.function?.name ?? "unknown");
-                                }
-                            }
-
-                            // Get final response after tool calls
-                            await ChatCompletionStreamingWithTools(toolResponses, tools, toolHandler, onChunk, model);
-                        }
                         return;
                     }
 
@@ -319,15 +311,50 @@ namespace UnityLLMAPI.Services
                     }
                     catch (Exception e) when (!(e is LLMException))
                     {
-                        string errorMessage = $"Error parsing streaming response: {e.Message}\nJSON: {jsonData}";
+                        string errorMessage = $"Error parsing streaming response: {e}\nJSON: {jsonData}";
                         LLMLogging.Log(errorMessage, LogType.Error);
                         throw new LLMResponseException(errorMessage, jsonData);
                     }
                 });
+                
+                // Handle tool calls if present
+                if (toolHandler != null && currentToolCallChunks.Count > 0)
+                {
+                    var toolResponses = new List<ChatMessage>(messages);
+                    var toolCalls = MergeToolCallChunks(currentToolCallChunks);
+                    LLMLogging.Log($"Merge {currentToolCallChunks.Count} tool call chunks into {toolCalls.Length} tool calls.", LogType.Log);
+                    currentMessage.tool_calls = toolCalls;
+                    toolResponses.Add(currentMessage);
+                    foreach (var toolCall in toolCalls)
+                    {
+                        try
+                        {
+                            if (string.IsNullOrEmpty(toolCall.function?.name))
+                            {
+                                throw new LLMValidationException("Tool call function name cannot be empty", "function.name");
+                            }
+                            
+                            LLMLogging.Log($"Executing tool: {toolCall.function.name},args:{toolCall.function.arguments}", LogType.Log);
+                            string toolResult = await toolHandler(toolCall);
+                            toolResponses.Add(CreateValidatedToolResponse(
+                                toolCall.id,
+                                toolCall.function.name,
+                                toolResult
+                            ));
+                        }
+                        catch (Exception e)
+                        {
+                            throw new LLMToolException($"Tool execution failed: {e.Message}", toolCall.function?.name ?? "unknown");
+                        }
+                    }
+
+                    // Get final response after tool calls
+                    await ChatCompletionStreamingWithTools(toolResponses, tools, toolHandler, onChunk, model);
+                }
             }
             catch (Exception e) when (!(e is LLMException))
             {
-                string errorMessage = $"Error in ChatCompletionStreaming: {e.Message}";
+                string errorMessage = $"Error in ChatCompletionStreaming: {e}";
                 LLMLogging.Log(errorMessage, LogType.Error);
                 throw new LLMException(errorMessage, e);
             }

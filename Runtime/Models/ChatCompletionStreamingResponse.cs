@@ -48,6 +48,7 @@ namespace UnityLLMAPI.Models
     public class ToolCallChunk
     {
         public string id;
+        public int index;
         public string type = "function";
         public ToolCallFunctionChunk function;
     }
