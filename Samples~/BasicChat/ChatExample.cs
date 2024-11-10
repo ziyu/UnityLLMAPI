@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Text;
 using UnityLLMAPI.Services;
 using UnityLLMAPI.Models;
 
@@ -15,11 +16,13 @@ namespace UnityLLMAPI.Examples
         [SerializeField] private string systemMessage = "You are a helpful assistant. Please provide clear and concise responses.";
 
         private OpenAIService openAIService;
-        private List<ChatMessage> chatHistory=new();
+        private List<ChatMessage> chatHistory = new();
         private bool isProcessing = false;
         private string userInput = "";
         private Vector2 scrollPosition;
         private Rect windowRect = new Rect(10, 10, 400, 600);
+        private bool useStreaming = true;
+        private StringBuilder currentStreamingMessage;
         
         // GUI Styles
         private GUIStyle boldLabelStyle;
@@ -36,7 +39,7 @@ namespace UnityLLMAPI.Examples
         
         private void OnGUI()
         {
-            if (openAIService == null)return; 
+            if (openAIService == null) return; 
             // Initialize GUI styles
             InitializeGUIStyles();
             windowRect = GUILayout.Window(0, windowRect, DrawChatWindow, "Chat with AI");
@@ -44,7 +47,7 @@ namespace UnityLLMAPI.Examples
         
         private void InitializeGUIStyles()
         {
-            if(boldLabelStyle!=null)return;
+            if (boldLabelStyle != null) return;
             boldLabelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontStyle = FontStyle.Bold
@@ -61,7 +64,7 @@ namespace UnityLLMAPI.Examples
             GUILayout.BeginVertical();
 
             // Chat history area
-            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(500));
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(470));
             foreach (var message in chatHistory)
             {
                 if (message.role != "system") // Don't display system messages
@@ -72,7 +75,21 @@ namespace UnityLLMAPI.Examples
                     GUILayout.Space(10);
                 }
             }
+
+            // Show current streaming message if any
+            if (isProcessing && useStreaming && currentStreamingMessage != null)
+            {
+                GUILayout.Label("Assistant:", boldLabelStyle);
+                GUILayout.TextArea(currentStreamingMessage.ToString(), wordWrappedLabelStyle);
+            }
+
             GUILayout.EndScrollView();
+
+            // Streaming toggle
+            GUILayout.BeginHorizontal();
+            useStreaming = GUILayout.Toggle(useStreaming, "Use Streaming");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             // Input area
             GUI.enabled = !isProcessing;
@@ -116,16 +133,33 @@ namespace UnityLLMAPI.Examples
                 // Add user message to history
                 chatHistory.Add(OpenAIService.CreateUserMessage(userMessage));
 
-                // Get AI response
-                string response = await openAIService.ChatCompletion(chatHistory);
+                if (useStreaming)
+                {
+                    // Initialize streaming message
+                    currentStreamingMessage = new StringBuilder();
+                    
+                    // Get streaming response
+                    await openAIService.ChatCompletionStreaming(chatHistory, chunk =>
+                    {
+                        currentStreamingMessage.Append(chunk);
+                    });
 
-                // Add AI response to history
-                chatHistory.Add(OpenAIService.CreateAssistantMessage(response));
+                    // Add completed message to history
+                    chatHistory.Add(OpenAIService.CreateAssistantMessage(currentStreamingMessage.ToString()));
+                    currentStreamingMessage = null;
+                }
+                else
+                {
+                    // Get regular response
+                    string response = await openAIService.ChatCompletion(chatHistory);
+                    chatHistory.Add(OpenAIService.CreateAssistantMessage(response));
+                }
             }
             catch (System.Exception e)
             {
                 Debug.LogError($"Error in chat: {e.Message}");
                 chatHistory.Add(OpenAIService.CreateAssistantMessage("Error: Failed to get response from AI."));
+                currentStreamingMessage = null;
             }
             finally
             {

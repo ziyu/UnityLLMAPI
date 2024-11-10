@@ -36,6 +36,7 @@ namespace UnityLLMAPI.Models
         public ChatMessage[] messages;
         public float temperature = 0.7f;
         public int max_tokens = 1000;
+        public bool stream = false;
     }
 
     /// <summary>
