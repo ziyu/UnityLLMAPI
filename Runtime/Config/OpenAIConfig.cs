@@ -1,32 +1,11 @@
 using UnityEngine;
+using UnityLLMAPI.Utils;
 
 namespace UnityLLMAPI.Config
 {
-    /// <summary>
-    /// Configuration for OpenAI API
-    /// </summary>
-    [CreateAssetMenu(fileName = "OpenAIConfig", menuName = "UnityLLMAPI/OpenAI Configuration")]
+    [CreateAssetMenu(fileName = "OpenAIConfig", menuName = "LLM API/OpenAI Config")]
     public class OpenAIConfig : ScriptableObject
     {
-        [Header("API Configuration")]
-        [Tooltip("Your OpenAI API Key")]
-        public string apiKey;
-
-        [Tooltip("API Base URL")]
-        public string apiBaseUrl = "https://api.openai.com/v1";
-
-        [Header("Default Settings")]
-        [Tooltip("Default model to use")]
-        public string defaultModel = "gpt-3.5-turbo";
-
-        [Range(0f, 2f)]
-        [Tooltip("Temperature for response randomness")]
-        public float temperature = 0.7f;
-
-        [Range(1, 4000)]
-        [Tooltip("Maximum tokens in response")]
-        public int maxTokens = 1000;
-
         private static OpenAIConfig instance;
         public static OpenAIConfig Instance
         {
@@ -35,12 +14,46 @@ namespace UnityLLMAPI.Config
                 if (instance == null)
                 {
                     instance = Resources.Load<OpenAIConfig>("OpenAIConfig");
-                    if (instance == null)
-                    {
-                        Debug.LogError("OpenAIConfig not found in Resources folder!");
-                    }
                 }
                 return instance;
+            }
+        }
+
+        [Header("API Configuration")]
+        public string apiKey;
+        public string apiBaseUrl = "https://api.openai.com/v1";
+        public string defaultModel = "gpt-3.5-turbo";
+        
+        [Header("Model Configuration")]
+        [Range(0f, 2f)]
+        public float temperature = 0.7f;
+        public int maxTokens = 2000;
+
+        [Header("Debug Configuration")]
+        public bool enableLogging = true;
+        public LogType minimumLogLevel = LogType.Log;
+
+        private void OnEnable()
+        {
+            // Update logging configuration when the asset is loaded
+            LLMLogging.EnableLogging(enableLogging);
+        }
+
+        public void ValidateConfig()
+        {
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                throw new LLMConfigurationException("API key is not configured");
+            }
+
+            if (string.IsNullOrEmpty(apiBaseUrl))
+            {
+                throw new LLMConfigurationException("API base URL is not configured");
+            }
+
+            if (string.IsNullOrEmpty(defaultModel))
+            {
+                throw new LLMConfigurationException("Default model is not configured");
             }
         }
     }

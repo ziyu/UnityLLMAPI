@@ -10,7 +10,7 @@ namespace UnityLLMAPI.Models
     public class ChatMessage
     {
         /// <summary>
-        /// Role of the message sender (system, user, assistant)
+        /// Role of the message sender (system, user, assistant, tool)
         /// </summary>
         public string role;
 
@@ -25,7 +25,7 @@ namespace UnityLLMAPI.Models
         public ToolCall[] tool_calls;
 
         /// <summary>
-        /// Name of the tool being responded to
+        /// ID of the tool being responded to
         /// </summary>
         public string tool_call_id;
 
@@ -34,8 +34,21 @@ namespace UnityLLMAPI.Models
         /// </summary>
         public string name;
 
+        public ChatMessage()
+        {
+        }
+
         public ChatMessage(string role, string content)
         {
+            if (string.IsNullOrEmpty(role))
+            {
+                throw new ArgumentException("Role cannot be empty", nameof(role));
+            }
+            if (content == null) // Allow empty content for function calls
+            {
+                throw new ArgumentException("Content cannot be null", nameof(content));
+            }
+
             this.role = role;
             this.content = content;
         }
@@ -45,6 +58,15 @@ namespace UnityLLMAPI.Models
         /// </summary>
         public static ChatMessage CreateToolResponse(string toolCallId, string name, string content)
         {
+            if (string.IsNullOrEmpty(toolCallId))
+            {
+                throw new ArgumentException("Tool call ID cannot be empty", nameof(toolCallId));
+            }
+            if (string.IsNullOrEmpty(name))
+            {
+                throw new ArgumentException("Tool name cannot be empty", nameof(name));
+            }
+
             return new ChatMessage("tool", content)
             {
                 tool_call_id = toolCallId,
@@ -79,6 +101,7 @@ namespace UnityLLMAPI.Models
         public long created;
         public ChatChoice[] choices;
         public Usage usage;
+        public ErrorResponse error;
     }
 
     [Serializable]

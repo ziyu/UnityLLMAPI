@@ -22,28 +22,49 @@ namespace UnityLLMAPI.Utils
         {
             using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
             {
-                byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
-                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = new DownloadHandlerBuffer();
-                
-                request.SetRequestHeader("Content-Type", "application/json");
-                request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
-
-                TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
-                
-                request.SendWebRequest().completed += operation =>
+                try
                 {
-                    if (request.result == UnityWebRequest.Result.Success)
-                    {
-                        tcs.SetResult(request.downloadHandler.text);
-                    }
-                    else
-                    {
-                        tcs.SetException(new Exception($"HTTP Error: {request.error}\nResponse: {request.downloadHandler?.text}"));
-                    }
-                };
+                    LLMLogging.Log($"Sending POST request to {url}", LogType.Log);
+                    
+                    byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
+                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                    request.downloadHandler = new DownloadHandlerBuffer();
+                    
+                    request.SetRequestHeader("Content-Type", "application/json");
+                    request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
 
-                return await tcs.Task;
+                    TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
+                    
+                    request.SendWebRequest().completed += operation =>
+                    {
+                        if (request.result == UnityWebRequest.Result.Success)
+                        {
+                            LLMLogging.Log("Request completed successfully", LogType.Log);
+                            tcs.SetResult(request.downloadHandler.text);
+                        }
+                        else
+                        {
+                            string errorMessage = $"HTTP Error: {request.error}";
+                            string responseContent = request.downloadHandler?.text;
+                            LLMLogging.Log(errorMessage, LogType.Error);
+                            
+                            if (!string.IsNullOrEmpty(responseContent))
+                            {
+                                LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
+                            }
+
+                            tcs.SetException(new LLMNetworkException(errorMessage+":"+responseContent ));
+                        }
+                    };
+
+                    return await tcs.Task;
+                }
+                catch (Exception e)
+                {
+                    string errorMessage = $"Exception in PostJsonAsync: {e.Message}";
+                    LLMLogging.Log(errorMessage, LogType.Error);
+                    throw new LLMNetworkException(errorMessage, e);
+                }
             }
         }
 
@@ -58,29 +79,43 @@ namespace UnityLLMAPI.Utils
         {
             using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
             {
-                byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
-                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                request.downloadHandler = new StreamingDownloadHandler(onData);
-                
-                request.SetRequestHeader("Content-Type", "application/json");
-                request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
-                request.SetRequestHeader("Accept", "text/event-stream");
-
-                TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-                
-                request.SendWebRequest().completed += operation =>
+                try
                 {
-                    if (request.result == UnityWebRequest.Result.Success)
-                    {
-                        tcs.SetResult(true);
-                    }
-                    else
-                    {
-                        tcs.SetException(new Exception($"HTTP Error: {request.error}"));
-                    }
-                };
+                    LLMLogging.Log($"Sending streaming POST request to {url}", LogType.Log);
+                    
+                    byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
+                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                    request.downloadHandler = new StreamingDownloadHandler(onData);
+                    
+                    request.SetRequestHeader("Content-Type", "application/json");
+                    request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                    request.SetRequestHeader("Accept", "text/event-stream");
 
-                await tcs.Task;
+                    TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+                    
+                    request.SendWebRequest().completed += operation =>
+                    {
+                        if (request.result == UnityWebRequest.Result.Success)
+                        {
+                            LLMLogging.Log("Streaming request completed successfully", LogType.Log);
+                            tcs.SetResult(true);
+                        }
+                        else
+                        {
+                            string errorMessage = $"HTTP Error: {request.error}";
+                            LLMLogging.Log(errorMessage, LogType.Error);
+                            tcs.SetException(new LLMNetworkException(errorMessage));
+                        }
+                    };
+
+                    await tcs.Task;
+                }
+                catch (Exception e)
+                {
+                    string errorMessage = $"Exception in PostJsonStreamAsync: {e.Message}";
+                    LLMLogging.Log(errorMessage, LogType.Error);
+                    throw new LLMNetworkException(errorMessage, e);
+                }
             }
         }
 
@@ -94,23 +129,44 @@ namespace UnityLLMAPI.Utils
         {
             using (UnityWebRequest request = UnityWebRequest.Get(url))
             {
-                request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
-                
-                TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
-                
-                request.SendWebRequest().completed += operation =>
+                try
                 {
-                    if (request.result == UnityWebRequest.Result.Success)
+                    LLMLogging.Log($"Sending GET request to {url}", LogType.Log);
+                    
+                    request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                    
+                    TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
+                    
+                    request.SendWebRequest().completed += operation =>
                     {
-                        tcs.SetResult(request.downloadHandler.text);
-                    }
-                    else
-                    {
-                        tcs.SetException(new Exception($"HTTP Error: {request.error}\nResponse: {request.downloadHandler?.text}"));
-                    }
-                };
+                        if (request.result == UnityWebRequest.Result.Success)
+                        {
+                            LLMLogging.Log("GET request completed successfully", LogType.Log);
+                            tcs.SetResult(request.downloadHandler.text);
+                        }
+                        else
+                        {
+                            string errorMessage = $"HTTP Error: {request.error}";
+                            string responseContent = request.downloadHandler?.text;
+                            LLMLogging.Log(errorMessage, LogType.Error);
+                            
+                            if (!string.IsNullOrEmpty(responseContent))
+                            {
+                                LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
+                            }
 
-                return await tcs.Task;
+                            tcs.SetException(new LLMNetworkException(errorMessage+":"+responseContent));
+                        }
+                    };
+
+                    return await tcs.Task;
+                }
+                catch (Exception e)
+                {
+                    string errorMessage = $"Exception in GetAsync: {e.Message}";
+                    LLMLogging.Log(errorMessage, LogType.Error);
+                    throw new LLMNetworkException(errorMessage, e);
+                }
             }
         }
     }
@@ -130,23 +186,35 @@ namespace UnityLLMAPI.Utils
 
         protected override bool ReceiveData(byte[] data, int dataLength)
         {
-            if (data == null || dataLength == 0) return false;
-
-            string chunk = Encoding.UTF8.GetString(data, 0, dataLength);
-            buffer.Append(chunk);
-
-            // Process complete lines
-            int newlineIndex;
-            while ((newlineIndex = buffer.ToString().IndexOf("\n")) != -1)
+            try
             {
-                string line = buffer.ToString(0, newlineIndex).Trim();
-                buffer.Remove(0, newlineIndex + 1);
-                
-                // Pass raw line to callback
-                onData?.Invoke(line);
-            }
+                if (data == null || dataLength == 0) return false;
 
-            return true;
+                string chunk = Encoding.UTF8.GetString(data, 0, dataLength);
+                buffer.Append(chunk);
+
+                // Process complete lines
+                int newlineIndex;
+                while ((newlineIndex = buffer.ToString().IndexOf("\n")) != -1)
+                {
+                    string line = buffer.ToString(0, newlineIndex).Trim();
+                    buffer.Remove(0, newlineIndex + 1);
+                    
+                    // Pass raw line to callback
+                    if (!string.IsNullOrEmpty(line))
+                    {
+                        LLMLogging.Log($"Received streaming data: {line}", LogType.Log);
+                        onData?.Invoke(line);
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception e)
+            {
+                LLMLogging.Log($"Error in ReceiveData: {e.Message}", LogType.Error);
+                return false;
+            }
         }
     }
 }

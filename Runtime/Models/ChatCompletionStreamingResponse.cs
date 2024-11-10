@@ -10,6 +10,22 @@ namespace UnityLLMAPI.Models
         public long created;
         public string model;
         public ChatCompletionChunkChoice[] choices;
+        public ErrorResponse error;
+    }
+
+    [Serializable]
+    public class ErrorResponse
+    {
+        public string message;
+        public int code;
+        public ErrorMetadata metadata;
+    }
+
+    [Serializable]
+    public class ErrorMetadata
+    {
+        public string raw;
+        public string provider_name;
     }
 
     [Serializable]
@@ -25,13 +41,14 @@ namespace UnityLLMAPI.Models
     {
         public string role;
         public string content;
-        public ToolCall[] tool_calls;
+        public ToolCallChunk[] tool_calls;
     }
 
     [Serializable]
     public class ToolCallChunk
     {
-        public string index;
+        public string id;
+        public string type = "function";
         public ToolCallFunctionChunk function;
     }
 

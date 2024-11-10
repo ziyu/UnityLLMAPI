@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using System;
 using UnityLLMAPI.Services;
 using UnityLLMAPI.Models;
+using UnityLLMAPI.Utils;
+using UnityLLMAPI.Config;
 
 namespace UnityLLMAPI.Examples
 {
@@ -18,6 +20,7 @@ namespace UnityLLMAPI.Examples
         [SerializeField] private string systemMessage = "You are a helpful assistant that can use tools.";
 
         private OpenAIService openAIService;
+        private OpenAIConfig config;
         private List<ChatMessage> chatHistory = new();
         private List<Tool> tools = new();
         private bool isProcessing = false;
@@ -27,21 +30,40 @@ namespace UnityLLMAPI.Examples
         private bool useStreaming = true;
         private bool useTools = true;
         private StringBuilder currentStreamingMessage;
+        private string errorMessage;
         
         // GUI Styles
         private GUIStyle boldLabelStyle;
         private GUIStyle wordWrappedLabelStyle;
+        private GUIStyle errorStyle;
 
         private void Start()
         {
-            // Initialize service and chat history
-            openAIService = new OpenAIService();
+            try
+            {
+                // Initialize service and chat history
+                config = OpenAIConfig.Instance;
+                if (config == null)
+                {
+                    throw new LLMConfigurationException("OpenAIConfig not found in Resources folder");
+                }
+                
+                openAIService = new OpenAIService();
 
-            // Initialize tools
-            InitializeTools();
+                // Initialize tools
+                InitializeTools();
 
-            // Add system message
-            chatHistory.Add(OpenAIService.CreateSystemMessage(systemMessage));
+                // Add system message
+                chatHistory.Add(OpenAIService.CreateSystemMessage(systemMessage));
+            }
+            catch (LLMException e)
+            {
+                HandleError(e);
+            }
+            catch (Exception e)
+            {
+                HandleError(new LLMException("Initialization failed", e));
+            }
         }
 
         private void InitializeTools()
@@ -100,6 +122,7 @@ namespace UnityLLMAPI.Examples
         private void InitializeGUIStyles()
         {
             if (boldLabelStyle != null) return;
+            
             boldLabelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontStyle = FontStyle.Bold
@@ -109,14 +132,32 @@ namespace UnityLLMAPI.Examples
             {
                 wordWrap = true
             };
+
+            errorStyle = new GUIStyle(GUI.skin.label)
+            {
+                wordWrap = true,
+                normal = { textColor = Color.red }
+            };
         }
         
         private void DrawChatWindow(int windowID)
         {
             GUILayout.BeginVertical();
 
+
+            // Error message display
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                GUILayout.Label(errorMessage, errorStyle);
+                if (GUILayout.Button("Clear Error"))
+                {
+                    errorMessage = null;
+                }
+                GUILayout.Space(10);
+            }
+
             // Chat history area
-            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(450));
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(400));
             foreach (var message in chatHistory)
             {
                 if (message.role != "system") // Don't display system messages
@@ -183,6 +224,22 @@ namespace UnityLLMAPI.Examples
             GUI.DragWindow();
         }
 
+        private void HandleError(Exception e)
+        {
+            string message = e switch
+            {
+                LLMConfigurationException => $"Configuration Error: {e.Message}",
+                LLMNetworkException => $"Network Error: {e.Message}",
+                LLMResponseException rex => $"API Error: {e.Message}\nResponse: {rex.ResponseContent}",
+                LLMToolException tex => $"Tool Error ({tex.ToolName}): {e.Message}",
+                LLMException => $"LLM Error: {e.Message}",
+                _ => $"Unexpected Error: {e.Message}"
+            };
+
+            LLMLogging.Log(message, LogType.Error);
+            errorMessage = message;
+        }
+
         private async void SendMessage()
         {
             if (isProcessing || string.IsNullOrEmpty(userInput))
@@ -190,6 +247,7 @@ namespace UnityLLMAPI.Examples
 
             try
             {
+                errorMessage = null;
                 isProcessing = true;
                 string userMessage = userInput;
                 userInput = ""; // Clear input field
@@ -243,11 +301,9 @@ namespace UnityLLMAPI.Examples
                     chatHistory.Add(OpenAIService.CreateAssistantMessage(response));
                 }
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {
-                Debug.LogError($"Error in chat: {e.Message}");
-                chatHistory.Add(OpenAIService.CreateAssistantMessage("Error: Failed to get response from AI."));
-                currentStreamingMessage = null;
+                HandleError(e);
             }
             finally
             {
@@ -259,6 +315,8 @@ namespace UnityLLMAPI.Examples
         {
             try
             {
+                LLMLogging.Log($"Executing tool: {toolCall.function.name}", LogType.Log);
+                
                 switch (toolCall.function.name)
                 {
                     case "get_current_time":
@@ -271,13 +329,14 @@ namespace UnityLLMAPI.Examples
                         return $"Simulated weather for {weatherArgs.location}: 72°F, Sunny";
 
                     default:
-                        throw new ArgumentException($"Unknown tool: {toolCall.function.name}");
+                        throw new LLMToolException($"Unknown tool: {toolCall.function.name}", toolCall.function.name);
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError($"Error handling tool call: {e.Message}");
-                return $"Error: {e.Message}";
+                if (e is LLMToolException)
+                    throw;
+                throw new LLMToolException($"Tool execution failed: {e.Message}", toolCall.function.name);
             }
         }
 
