@@ -14,7 +14,7 @@ namespace UnityLLMAPI.Interfaces
         /// <param name="messages">List of chat messages</param>
         /// <param name="model">Model name to use</param>
         /// <returns>Response from the language model</returns>
-        Task<string> ChatCompletion(List<ChatMessage> messages, string model = "gpt-3.5-turbo");
+        Task<string> ChatCompletion(List<ChatMessage> messages, string model);
 
         /// <summary>
         /// Send a completion request to the language model
@@ -22,6 +22,6 @@ namespace UnityLLMAPI.Interfaces
         /// <param name="prompt">Input prompt</param>
         /// <param name="model">Model name to use</param>
         /// <returns>Response from the language model</returns>
-        Task<string> Completion(string prompt, string model = "text-davinci-003");
+        Task<string> Completion(string prompt, string model);
     }
 }
