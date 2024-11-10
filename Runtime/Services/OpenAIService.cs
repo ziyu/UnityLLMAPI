@@ -16,6 +16,9 @@ namespace UnityLLMAPI.Services
     {
         private readonly OpenAIConfig config;
 
+        /// <summary>
+        /// Initialize service with default config from Resources
+        /// </summary>
         public OpenAIService()
         {
             config = OpenAIConfig.Instance;
@@ -23,6 +26,15 @@ namespace UnityLLMAPI.Services
             {
                 throw new InvalidOperationException("OpenAIConfig not found. Please create and configure it in the Resources folder.");
             }
+        }
+
+        /// <summary>
+        /// Initialize service with custom config
+        /// </summary>
+        /// <param name="customConfig">Custom OpenAI configuration</param>
+        public OpenAIService(OpenAIConfig customConfig)
+        {
+            config = customConfig ?? throw new ArgumentNullException(nameof(customConfig));
         }
 
         /// <summary>
