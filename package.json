@@ -16,9 +16,7 @@
     "email": "liziyu1209@gmail.com",
     "url": ""
   },
-  "dependencies": {
-    "com.unity.textmeshpro": "3.0.6"
-  },
+  "dependencies": {},
   "samples": [
     {
       "displayName": "Basic Chat",
