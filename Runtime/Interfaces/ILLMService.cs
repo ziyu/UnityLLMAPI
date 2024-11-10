@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using UnityLLMAPI.Models;
 
 namespace UnityLLMAPI.Interfaces
 {
