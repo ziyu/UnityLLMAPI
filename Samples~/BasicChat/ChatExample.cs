@@ -15,24 +15,44 @@ namespace UnityLLMAPI.Examples
         [SerializeField] private string systemMessage = "You are a helpful assistant. Please provide clear and concise responses.";
 
         private OpenAIService openAIService;
-        private List<ChatMessage> chatHistory;
+        private List<ChatMessage> chatHistory=new();
         private bool isProcessing = false;
         private string userInput = "";
         private Vector2 scrollPosition;
         private Rect windowRect = new Rect(10, 10, 400, 600);
+        
+        // GUI Styles
+        private GUIStyle boldLabelStyle;
+        private GUIStyle wordWrappedLabelStyle;
 
         private void Start()
         {
             // Initialize service and chat history
             openAIService = new OpenAIService();
-            chatHistory = new List<ChatMessage>();
 
             // Add system message
             chatHistory.Add(OpenAIService.CreateSystemMessage(systemMessage));
+
+            // Initialize GUI styles
+            InitializeGUIStyles();
+        }
+
+        private void InitializeGUIStyles()
+        {
+            boldLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold
+            };
+
+            wordWrappedLabelStyle = new GUIStyle(GUI.skin.label)
+            {
+                wordWrap = true
+            };
         }
 
         private void OnGUI()
         {
+            if (openAIService == null)return; 
             windowRect = GUILayout.Window(0, windowRect, DrawChatWindow, "Chat with AI");
         }
 
@@ -47,8 +67,8 @@ namespace UnityLLMAPI.Examples
                 if (message.role != "system") // Don't display system messages
                 {
                     string role = char.ToUpper(message.role[0]) + message.role.Substring(1);
-                    GUILayout.Label($"{role}:", EditorStyles.boldLabel);
-                    GUILayout.TextArea(message.content, EditorStyles.wordWrappedLabel);
+                    GUILayout.Label($"{role}:", boldLabelStyle);
+                    GUILayout.TextArea(message.content, wordWrappedLabelStyle);
                     GUILayout.Space(10);
                 }
             }
