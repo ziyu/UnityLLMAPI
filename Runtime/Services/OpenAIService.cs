@@ -18,6 +18,7 @@ namespace UnityLLMAPI.Services
     public class OpenAIService : ILLMService
     {
         private readonly OpenAIConfig config;
+        private const string API_ENDPOINT = "/chat/completions";
 
         /// <summary>
         /// Initialize service with default config from Resources
@@ -80,26 +81,182 @@ namespace UnityLLMAPI.Services
         }
 
         /// <summary>
-        /// Send a chat completion request to OpenAI
+        /// Create base chat completion request
         /// </summary>
-        public async Task<string> ChatCompletion(List<ChatMessage> messages, string model = null)
+        private ChatCompletionRequest CreateBaseRequest(List<ChatMessage> messages, string model, bool isStreaming = false, List<Tool> tools = null)
         {
-            return await ChatCompletionWithTools(messages, null, null, model);
+            string useModel = model ?? config.defaultModel;
+            return new ChatCompletionRequest
+            {
+                model = useModel,
+                messages = messages.ToArray(),
+                temperature = config.temperature,
+                max_tokens = config.maxTokens,
+                stream = isStreaming,
+                tools = tools?.ToArray(),
+                tool_choice = tools != null ? "auto" : null
+            };
         }
 
         /// <summary>
-        /// Create a tool response message with validation
+        /// Handle API response and extract message
         /// </summary>
-        private ChatMessage CreateValidatedToolResponse(string toolCallId, string functionName, string content)
+        private ChatMessage HandleResponse(string jsonResponse)
         {
-            if (string.IsNullOrEmpty(functionName))
+            var response = JsonConverter.DeserializeObject<ChatCompletionResponse>(jsonResponse);
+            
+            // Check for API errors
+            if (response?.error != null)
             {
-                throw new LLMValidationException("Function name cannot be empty for tool response", "function.name");
+                throw LLMResponseException.FromErrorResponse(response.error, jsonResponse);
             }
-            return ChatMessage.CreateToolResponse(toolCallId, functionName, content);
+
+            if (response?.choices == null || response.choices.Length == 0)
+            {
+                throw new LLMResponseException("No response choices available", jsonResponse);
+            }
+
+            return response.choices[0].message;
         }
-        
-        
+
+        /// <summary>
+        /// Send a chat completion request to OpenAI
+        /// </summary>
+        public async Task<ChatMessage> ChatCompletion(List<ChatMessage> messages, string model = null)
+        {
+            return await SendChatRequest(messages, model);
+        }
+
+        /// <summary>
+        /// Send a chat completion request with tools to OpenAI
+        /// </summary>
+        public async Task<ChatMessage> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, string model = null)
+        {
+            return await SendChatRequest(messages, model, tools);
+        }
+
+        /// <summary>
+        /// Core method to send chat requests
+        /// </summary>
+        private async Task<ChatMessage> SendChatRequest(List<ChatMessage> messages, string model = null, List<Tool> tools = null)
+        {
+            try
+            {
+                ValidateMessages(messages);
+
+                var request = CreateBaseRequest(messages, model, false, tools);
+                string jsonRequest = JsonConverter.SerializeObject(request);
+                string url = $"{config.apiBaseUrl}{API_ENDPOINT}";
+                
+                LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
+                LLMLogging.Log($"Sending request to OpenAI API", LogType.Log);
+                
+                string jsonResponse = await HttpClient.PostJsonAsync(url, jsonRequest, config.apiKey);
+                return HandleResponse(jsonResponse);
+            }
+            catch (Exception e) when (!(e is LLMException))
+            {
+                string errorMessage = $"Error in ChatCompletion: {e.Message}";
+                throw new LLMException(errorMessage, e);
+            }
+        }
+
+        /// <summary>
+        /// Send a streaming chat completion request to OpenAI
+        /// </summary>
+        public async Task ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null)
+        {
+            await SendStreamingRequest(messages, onChunk, model);
+        }
+
+        /// <summary>
+        /// Send a streaming chat completion request with tools to OpenAI
+        /// </summary>
+        public async Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Action<ChatMessage,bool> onChunk, string model = null)
+        {
+            await SendStreamingRequest(messages, onChunk, model, tools);
+        }
+
+        /// <summary>
+        /// Core method to send streaming requests
+        /// </summary>
+        private async Task SendStreamingRequest(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, List<Tool> tools = null)
+        {
+            try
+            {
+                ValidateMessages(messages);
+
+                if (onChunk == null)
+                {
+                    throw new LLMValidationException("Chunk handler cannot be null for streaming completion", "onChunk");
+                }
+
+                var request = CreateBaseRequest(messages, model, true, tools);
+                string jsonRequest = JsonConverter.SerializeObject(request);
+                string url = $"{config.apiBaseUrl}{API_ENDPOINT}";
+
+                LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
+                LLMLogging.Log("Starting streaming request", LogType.Log);
+
+                var currentMessage = CreateAssistantMessage("");
+                List<ToolCallChunk> currentToolCallChunks = new List<ToolCallChunk>();
+
+                await HttpClient.PostJsonStreamAsync(url, jsonRequest, config.apiKey, async line =>
+                {
+                    if (string.IsNullOrEmpty(line) || !line.StartsWith("data: ")) return;
+
+                    string jsonData = line.Substring(6);
+                    if (jsonData == "[DONE]")
+                    {
+                        LLMLogging.Log("Stream completed", LogType.Log);
+                        if (currentToolCallChunks.Count > 0)
+                        {
+                            currentMessage.tool_calls = MergeToolCallChunks(currentToolCallChunks);
+                        }
+                        onChunk(currentMessage, true);
+                        return;
+                    }
+
+                    try
+                    {
+                        var response = JsonConverter.DeserializeObject<ChatCompletionChunkResponse>(jsonData);
+                        
+                        // Check for API errors
+                        if (response?.error != null)
+                        {
+                            throw LLMResponseException.FromErrorResponse(response.error, jsonData);
+                        }
+
+                        if (response?.choices is { Length: > 0 })
+                        {
+                            var delta = response.choices[0].delta;
+                            if (!string.IsNullOrEmpty(delta?.content))
+                            {
+                                currentMessage.content += delta.content;
+                                onChunk(currentMessage, false);
+                            }
+                            if (delta?.tool_calls != null)
+                            {
+                                currentToolCallChunks.AddRange(delta.tool_calls);
+                            }
+                        }
+                    }
+                    catch (Exception e) when (!(e is LLMException))
+                    {
+                        string errorMessage = $"Error parsing streaming response: {e}\nJSON: {jsonData}";
+                        LLMLogging.Log(errorMessage, LogType.Error);
+                        throw new LLMResponseException(errorMessage, jsonData);
+                    }
+                });
+            }
+            catch (Exception e) when (!(e is LLMException))
+            {
+                string errorMessage = $"Error in ChatCompletionStreaming: {e}";
+                LLMLogging.Log(errorMessage, LogType.Error);
+                throw new LLMException(errorMessage, e);
+            }
+        }
+
         private ToolCall[] MergeToolCallChunks(List<ToolCallChunk> chunks)
         {
             Dictionary<int, ToolCall> indexedToolCalls = new();
@@ -134,230 +291,10 @@ namespace UnityLLMAPI.Services
 
             foreach (var (index,toolCall) in indexedToolCalls)
             {
-                toolCall.function.arguments=indexedToolCallArgs[index].ToString();
+                toolCall.function.arguments = indexedToolCallArgs[index].ToString();
             }
             
             return indexedToolCalls.Values.ToArray();
-        }
-
-        /// <summary>
-        /// Send a chat completion request with tools to OpenAI
-        /// </summary>
-        public async Task<string> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, Func<ToolCall, Task<string>> toolHandler, string model = null)
-        {
-            try
-            {
-                ValidateMessages(messages);
-
-                string useModel = model ?? config.defaultModel;
-                LLMLogging.Log($"Starting chat completion with model: {useModel}", LogType.Log);
-
-                var request = new ChatCompletionRequest
-                {
-                    model = useModel,
-                    messages = messages.ToArray(),
-                    temperature = config.temperature,
-                    max_tokens = config.maxTokens,
-                    tools = tools?.ToArray(),
-                    tool_choice = tools != null ? "auto" : null
-                };
-
-                string jsonRequest = JsonConverter.SerializeObject(request);
-                string url = $"{config.apiBaseUrl}/chat/completions";
-                
-                LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
-                LLMLogging.Log($"Sending request to OpenAI API", LogType.Log);
-                string jsonResponse = await HttpClient.PostJsonAsync(url, jsonRequest, config.apiKey);
-                
-                var response = JsonConverter.DeserializeObject<ChatCompletionResponse>(jsonResponse);
-                
-                // Check for API errors
-                if (response?.error != null)
-                {
-                    throw LLMResponseException.FromErrorResponse(response.error, jsonResponse);
-                }
-
-                if (response?.choices == null || response.choices.Length == 0)
-                {
-                    throw new LLMResponseException("No response choices available", jsonResponse);
-                }
-
-                var choice = response.choices[0];
-                var message = choice.message;
-
-                // Handle tool calls if present
-                if (toolHandler != null && message.tool_calls != null && message.tool_calls.Length > 0)
-                {
-                    LLMLogging.Log($"Processing {message.tool_calls.Length} tool calls", LogType.Log);
-                    var toolResponses = new List<ChatMessage>(messages);
-                    toolResponses.Add(message);
-
-                    foreach (var toolCall in message.tool_calls)
-                    {
-                        try
-                        {
-                            if (string.IsNullOrEmpty(toolCall.function?.name))
-                            {
-                                throw new LLMValidationException("Tool call function name cannot be empty", "function.name");
-                            }
-                            
-                            LLMLogging.Log($"Executing tool: {toolCall.function.name}", LogType.Log);
-                            string toolResult = await toolHandler(toolCall);
-                            toolResponses.Add(CreateValidatedToolResponse(
-                                toolCall.id,
-                                toolCall.function.name,
-                                toolResult
-                            ));
-                        }
-                        catch (Exception e)
-                        {
-                            throw new LLMToolException($"Tool execution failed: {e.Message}", toolCall.function?.name ?? "unknown");
-                        }
-                    }
-
-                    // Get final response after tool calls
-                    return await ChatCompletionWithTools(toolResponses, tools, toolHandler, model);
-                }
-
-                LLMLogging.Log("Chat completion successful", LogType.Log);
-                return message.content;
-            }
-            catch (Exception e) when (!(e is LLMException))
-            {
-                string errorMessage = $"Error in ChatCompletion: {e.Message}";
-                throw new LLMException(errorMessage, e);
-            }
-        }
-
-        /// <summary>
-        /// Send a streaming chat completion request to OpenAI
-        /// </summary>
-        public async Task ChatCompletionStreaming(List<ChatMessage> messages, Action<string> onChunk, string model = null)
-        {
-            await ChatCompletionStreamingWithTools(messages, null, null, onChunk, model);
-        }
-
-        /// <summary>
-        /// Send a streaming chat completion request with tools to OpenAI
-        /// </summary>
-        public async Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Func<ToolCall, Task<string>> toolHandler, Action<string> onChunk, string model = null)
-        {
-            try
-            {
-                ValidateMessages(messages);
-
-                if (onChunk == null)
-                {
-                    throw new LLMValidationException("Chunk handler cannot be null for streaming completion", "onChunk");
-                }
-
-                string useModel = model ?? config.defaultModel;
-                LLMLogging.Log($"Starting streaming chat completion with model: {useModel}", LogType.Log);
-
-                var request = new ChatCompletionRequest
-                {
-                    model = useModel,
-                    messages = messages.ToArray(),
-                    temperature = config.temperature,
-                    max_tokens = config.maxTokens,
-                    stream = true,
-                    tools = tools?.ToArray(),
-                    tool_choice = tools != null ? "auto" : null
-                };
-
-                string jsonRequest = JsonConverter.SerializeObject(request);
-                string url = $"{config.apiBaseUrl}/chat/completions";
-
-                LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
-                LLMLogging.Log("Starting streaming request", LogType.Log);
-
-                List<ToolCallChunk> currentToolCallChunks = new List<ToolCallChunk>();
-                ChatMessage currentMessage = new ChatMessage("assistant", "");
-
-                await HttpClient.PostJsonStreamAsync(url, jsonRequest, config.apiKey, async line =>
-                {
-                    if (string.IsNullOrEmpty(line) || !line.StartsWith("data: ")) return;
-
-                    string jsonData = line.Substring(6);
-                    if (jsonData == "[DONE]")
-                    {
-                        LLMLogging.Log("Stream completed", LogType.Log);
-                        return;
-                    }
-
-                    try
-                    {
-                        var response = JsonConverter.DeserializeObject<ChatCompletionChunkResponse>(jsonData);
-                        
-                        // Check for API errors
-                        if (response?.error != null)
-                        {
-                            throw LLMResponseException.FromErrorResponse(response.error, jsonData);
-                        }
-
-                        if (response?.choices is { Length: > 0 })
-                        {
-                            var delta = response.choices[0].delta;
-                            if (!string.IsNullOrEmpty(delta?.content))
-                            {
-                                currentMessage.content += delta.content;
-                                onChunk?.Invoke(delta.content);
-                            }
-                            if (delta?.tool_calls != null)
-                            {
-                                currentToolCallChunks.AddRange(delta.tool_calls);
-                            }
-                        }
-                    }
-                    catch (Exception e) when (!(e is LLMException))
-                    {
-                        string errorMessage = $"Error parsing streaming response: {e}\nJSON: {jsonData}";
-                        LLMLogging.Log(errorMessage, LogType.Error);
-                        throw new LLMResponseException(errorMessage, jsonData);
-                    }
-                });
-                
-                // Handle tool calls if present
-                if (toolHandler != null && currentToolCallChunks.Count > 0)
-                {
-                    var toolResponses = new List<ChatMessage>(messages);
-                    var toolCalls = MergeToolCallChunks(currentToolCallChunks);
-                    LLMLogging.Log($"Merge {currentToolCallChunks.Count} tool call chunks into {toolCalls.Length} tool calls.", LogType.Log);
-                    currentMessage.tool_calls = toolCalls;
-                    toolResponses.Add(currentMessage);
-                    foreach (var toolCall in toolCalls)
-                    {
-                        try
-                        {
-                            if (string.IsNullOrEmpty(toolCall.function?.name))
-                            {
-                                throw new LLMValidationException("Tool call function name cannot be empty", "function.name");
-                            }
-                            
-                            LLMLogging.Log($"Executing tool: {toolCall.function.name},args:{toolCall.function.arguments}", LogType.Log);
-                            string toolResult = await toolHandler(toolCall);
-                            toolResponses.Add(CreateValidatedToolResponse(
-                                toolCall.id,
-                                toolCall.function.name,
-                                toolResult
-                            ));
-                        }
-                        catch (Exception e)
-                        {
-                            throw new LLMToolException($"Tool execution failed: {e.Message}", toolCall.function?.name ?? "unknown");
-                        }
-                    }
-
-                    // Get final response after tool calls
-                    await ChatCompletionStreamingWithTools(toolResponses, tools, toolHandler, onChunk, model);
-                }
-            }
-            catch (Exception e) when (!(e is LLMException))
-            {
-                string errorMessage = $"Error in ChatCompletionStreaming: {e}";
-                LLMLogging.Log(errorMessage, LogType.Error);
-                throw new LLMException(errorMessage, e);
-            }
         }
 
         /// <summary>
@@ -376,7 +313,8 @@ namespace UnityLLMAPI.Services
                 new ChatMessage("user", prompt)
             };
             
-            return await ChatCompletion(messages, model);
+            var response = await ChatCompletion(messages, model);
+            return response.content;
         }
 
         /// <summary>

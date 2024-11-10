@@ -1,111 +1,299 @@
-# Unity LLM API Documentation
+# Unity LLM API 文档
 
-## Overview
-Unity LLM API is a plugin that provides easy integration with OpenAI and other Language Model APIs in Unity projects. It offers a clean, async-first API design with proper error handling and configuration management.
+## 概述
+Unity LLM API是一个为Unity项目提供大语言模型集成的插件。它提供了清晰的异步API设计、完善的错误处理和灵活的配置管理。主要特性包括OpenAI API集成、Tool Calling支持、流式响应、自定义JSON序列化等。
 
-## Installation
+## 安装
 
-### Using Git URL
-1. Open the Unity Package Manager (Window > Package Manager)
-2. Click the "+" button in the top-left corner
-3. Select "Add package from git URL"
-4. Enter: `https://github.com/yourusername/UnityLLMAPI.git`
+### 使用Git URL
+1. 打开Unity Package Manager (Window > Package Manager)
+2. 点击左上角的"+"按钮
+3. 选择"Add package from git URL"
+4. 输入: `https://github.com/yourusername/UnityLLMAPI.git`
 
-### Manual Installation
-1. Download the latest release
-2. Extract it into your Unity project's `Packages` folder
+### 手动安装
+1. 下载最新release
+2. 解压到Unity项目的`Packages`文件夹中
 
-## Configuration
+## 配置
 
-1. Create an OpenAI Configuration asset:
-   - Right-click in the Project window
-   - Select Create > UnityLLMAPI > OpenAI Configuration
-   - Place it in a Resources folder
-2. Configure your OpenAI API key in the created asset
-3. (Optional) Adjust other settings like:
-   - Default model
-   - Temperature
-   - Max tokens
+### OpenAI配置
+1. 创建OpenAI配置资产:
+   - 在Project窗口中右键
+   - 选择 Create > UnityLLMAPI > OpenAI Configuration
+   - 将其放在Resources文件夹中
+2. 配置选项:
+   - API Key: OpenAI API密钥
+   - API Base URL: API基础URL
+   - Default Model: 默认使用的模型
+   - Temperature: 响应的随机性 (0.0-2.0)
+   - Max Tokens: 最大生成token数
+   - Enable Logging: 是否启用详细日志
 
-## Basic Usage
 
-### Chat Completion
 
+## 基础用法
+
+### 简单对话
 ```csharp
-using UnityLLMAPI.Services;
-using UnityLLMAPI.Models;
-using System.Collections.Generic;
-
-// Create service instance
+// 创建服务实例
 var openAIService = new OpenAIService();
 
-// Create message list
+// 发送单条消息
+string response = await openAIService.Completion("你好！");
+
+// 发送多轮对话
 var messages = new List<ChatMessage>();
-messages.Add(OpenAIService.CreateSystemMessage("You are a helpful assistant."));
-messages.Add(OpenAIService.CreateUserMessage("Hello!"));
-
-// Send request
-string response = await openAIService.ChatCompletion(messages);
-Debug.Log(response);
+messages.Add(OpenAIService.CreateSystemMessage("你是一个有帮助的助手。"));
+messages.Add(OpenAIService.CreateUserMessage("你好！"));
+var response = await openAIService.ChatCompletion(messages);
 ```
 
-### Simple Completion
+### 使用ChatbotService
+
+### Chatbot配置
 
 ```csharp
-var openAIService = new OpenAIService();
-string response = await openAIService.Completion("What is Unity?");
-Debug.Log(response);
-```
-
-## Advanced Topics
-
-### Error Handling
-The API uses async/await pattern and throws exceptions when errors occur. Always wrap API calls in try-catch blocks:
-
-```csharp
-try
+var config = new ChatbotConfig 
 {
-    string response = await openAIService.ChatCompletion(messages);
-    // Handle success
-}
-catch (Exception e)
-{
-    Debug.LogError($"API Error: {e.Message}");
-    // Handle error
-}
+    systemPrompt = "你是一个有帮助的助手", // 系统提示词
+    defaultModel = "gpt-3.5-turbo", // 默认模型
+    useStreaming = true, // 是否使用流式响应
+    onStreamingChunk = (chunk) => {
+        // 处理流式响应片段
+    },
+    toolSet = new ToolSet(...), // 工具集配置
+    shouldExecuteTool = async (toolCall) => {
+        // 控制是否执行工具调用
+        return true;
+    },
+    skipToolMessage = "工具调用已跳过" // 跳过工具调用时的消息
+};
 ```
-
-### Custom Configuration
-You can modify the configuration at runtime:
 
 ```csharp
-var config = OpenAIConfig.Instance;
-config.temperature = 0.8f;
-config.maxTokens = 2000;
+// 创建服务
+var chatbot = new ChatbotService(new OpenAIService(), config);
+
+// 发送消息
+var response = await chatbot.SendMessage("你好！");
+
+// 获取对话历史
+var history = chatbot.Messages;
+
+// 清除历史
+chatbot.ClearHistory();
 ```
 
-## Examples
-Check the Samples folder for complete examples including:
-- Basic chat implementation
-- UI integration
-- Advanced usage patterns
+### 流式响应
+```csharp
+var config = new ChatbotConfig 
+{
+    useStreaming = true,
+    onStreamingChunk = (chunk) => {
+        // 处理每个响应片段
+        Debug.Log(chunk.content);
+        
+        // 更新UI
+        UpdateUI(chunk.content);
+    }
+};
 
-## Troubleshooting
+var chatbot = new ChatbotService(new OpenAIService(), config);
+await chatbot.SendMessage("生成一个长故事");
+```
 
-### Common Issues
+### Tool Calling
+
+#### 定义工具
+```csharp
+var tools = new List<Tool> 
+{
+    new Tool 
+    {
+        name = "get_weather",
+        description = "获取天气信息",
+        parameters = new 
+        {
+            type = "object",
+            properties = new 
+            {
+                location = new { type = "string", description = "位置" },
+                date = new { type = "string", description = "日期" }
+            },
+            required = new[] { "location" }
+        }
+    },
+    new Tool 
+    {
+        name = "search_database",
+        description = "搜索数据库",
+        parameters = new 
+        {
+            type = "object",
+            properties = new 
+            {
+                query = new { type = "string", description = "搜索关键词" }
+            },
+            required = new[] { "query" }
+        }
+    }
+};
+```
+
+#### 配置工具集
+```csharp
+var toolSet = new ToolSet(tools, async (toolCall) => {
+    switch (toolCall.function.name) 
+    {
+        case "get_weather":
+            var args = JsonConverter.DeserializeObject<WeatherArgs>(toolCall.function.arguments);
+            return await GetWeatherData(args.location, args.date);
+            
+        case "search_database":
+            var searchArgs = JsonConverter.DeserializeObject<SearchArgs>(toolCall.function.arguments);
+            return await SearchDatabase(searchArgs.query);
+            
+        default:
+            throw new Exception($"Unknown tool: {toolCall.function.name}");
+    }
+});
+
+var config = new ChatbotConfig 
+{
+    toolSet = toolSet,
+    shouldExecuteTool = async (toolCall) => {
+        // 可以在这里添加权限检查等逻辑
+        return true;
+    }
+};
+```
+
+#### 使用工具
+```csharp
+var chatbot = new ChatbotService(new OpenAIService(), config);
+
+// 工具会在需要时自动调用
+await chatbot.SendMessage("北京今天天气怎么样？");
+await chatbot.SendMessage("搜索关于Unity的资料");
+```
+
+## 错误处理
+
+### 错误类型
+- LLMConfigurationException: 配置相关错误
+- LLMValidationException: 输入验证错误
+- LLMResponseException: API响应错误
+- LLMException: 其他错误
+
+### 错误处理示例
+```csharp
+try 
+{
+    await chatbot.SendMessage("你好");
+} 
+catch (LLMConfigurationException e) 
+{
+    Debug.LogError($"配置错误: {e.Message}");
+    // 检查OpenAI配置是否正确
+} 
+catch (LLMValidationException e) 
+{
+    Debug.LogError($"验证错误: {e.Message}");
+    // 检查输入参数
+} 
+catch (LLMResponseException e) 
+{
+    Debug.LogError($"API响应错误: {e.Message}");
+    // 处理API错误，如速率限制、认证错误等
+} 
+catch (LLMException e) 
+{
+    Debug.LogError($"其他错误: {e.Message}");
+    // 处理其他错误
+}
+```
+
+### 日志系统
+```csharp
+// 在配置中启用日志
+config.enableLogging = true;
+
+// 日志会输出到Unity Console
+// 包括请求详情、响应内容、错误信息等
+```
+
+## 高级功能
+
+### 自定义JSON序列化
+```csharp
+// 序列化
+string json = JsonConverter.SerializeObject(obj);
+
+// 反序列化
+var obj = JsonConverter.DeserializeObject<T>(json);
+
+// 处理特殊类型
+public class CustomJsonConverter : JsonConverter 
+{
+    public override void WriteJson(JsonWriter writer, object value)
+    {
+        // 自定义序列化逻辑
+    }
+    
+    public override object ReadJson(JsonReader reader, Type objectType)
+    {
+        // 自定义反序列化逻辑
+    }
+}
+```
+
+### 自定义HTTP客户端
+```csharp
+// 发送POST请求
+string response = await HttpClient.PostJsonAsync(url, jsonContent, apiKey);
+
+// 处理流式响应
+await HttpClient.PostJsonStreamAsync(url, jsonContent, apiKey, async (line) => {
+    // 处理每行响应
+});
+```
+
+## 故障排除
+
+### 常见问题
 
 1. "OpenAIConfig not found"
-   - Ensure you've created the config asset
-   - Make sure it's placed in a Resources folder
+   - 确保已创建配置资产
+   - 确保配置资产在Resources文件夹中
 
 2. "API Key Invalid"
-   - Verify your API key in the OpenAIConfig asset
-   - Check if the key has proper permissions
+   - 检查OpenAI API密钥是否正确
+   - 确认API密钥有正确的权限
 
 3. "Request Failed"
-   - Check your internet connection
-   - Verify API endpoint is accessible
-   - Check Unity console for detailed error message
+   - 检查网络连接
+   - 确认API端点可访问
+   - 查看Unity Console获取详细错误信息
 
-## Support
-For issues and feature requests, please use the GitHub issue tracker.
+4. "Tool Execution Failed"
+   - 检查工具定义是否正确
+   - 确认工具实现逻辑无误
+   - 查看工具执行的详细错误信息
+
+### 性能优化
+
+1. 消息历史管理
+   - 定期清理不需要的历史消息
+   - 控制消息列表的长度
+
+2. 流式响应
+   - 合理处理UI更新频率
+   - 避免在每个片段都进行重量级操作
+
+3. 工具调用
+   - 实现高效的工具执行逻辑
+   - 合理使用shouldExecuteTool进行控制
+
+## 支持
+如有问题或功能建议，请使用GitHub issue tracker。

@@ -1,23 +1,59 @@
 # Changelog
-All notable changes to this package will be documented in this file.
+本文档记录了此项目的所有重要变更。
 
-The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
-and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+格式基于[Keep a Changelog](http://keepachangelog.com/en/1.0.0/)，
+版本号遵循[Semantic Versioning](http://semver.org/spec/v2.0.0.html)。
 
-## [1.1.0] - 2024-01-15
-### Changed
-- 实现Tool Calling
-- 优化了代码结构和性能
-- 改进了错误处理机制
-- 增强了JSON解析的稳定性
+## [1.1.0] - 2024-11-10
+### 新增
+- ChatBot实现
+  - ChatbotService封装
+  - 对话历史管理
+  - 系统提示词配置
+  - 灵活的配置选项
+- Tool Calling功能支持
+  - 支持定义和执行自定义工具
+  - 工具调用权限控制
+  - 工具执行结果处理
+- 流式响应支持
+  - 实时获取API响应内容
+  - 支持UI实时更新
+  - 支持取消操作
 
-## [1.0.0] - 2024-01-14
-### Added
-- Initial release
-- Core OpenAI API integration
-- Chat Completion API support
-- Basic chat example
-- Async operation support
-- Configuration system
-- Error handling
-- Documentation
+### 优化
+- 重构代码结构，提高可维护性
+  - 分离服务层和工具层
+  - 优化接口设计
+  - 改进异常处理机制
+- 改进错误处理
+  - 更详细的错误信息
+  - 分类异常处理
+  - 完善日志系统
+
+### 修复
+- 修复长文本响应可能的截断问题
+- 修复并发请求的潜在问题
+- 修复JSON解析的边界情况
+
+## [1.0.0] - 2024-11-10
+### 新增
+- 初始版本发布
+- OpenAI API集成
+  - Chat Completion API支持
+  - 完整的请求/响应模型
+  - API配置管理
+- 基础功能实现
+  - 异步操作支持
+  - 消息历史管理
+  - 配置系统
+- 错误处理
+  - 异常类型定义
+  - 错误信息本地化
+  - 日志记录
+- 文档
+  - API文档
+  - 使用示例
+  - 安装指南
+- 示例场景
+  - 基础聊天示例
+  - 配置示例
