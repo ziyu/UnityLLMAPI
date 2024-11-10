@@ -32,13 +32,19 @@ namespace UnityLLMAPI.Examples
 
             // Add system message
             chatHistory.Add(OpenAIService.CreateSystemMessage(systemMessage));
-
+        }
+        
+        private void OnGUI()
+        {
+            if (openAIService == null)return; 
             // Initialize GUI styles
             InitializeGUIStyles();
+            windowRect = GUILayout.Window(0, windowRect, DrawChatWindow, "Chat with AI");
         }
-
+        
         private void InitializeGUIStyles()
         {
+            if(boldLabelStyle!=null)return;
             boldLabelStyle = new GUIStyle(GUI.skin.label)
             {
                 fontStyle = FontStyle.Bold
@@ -49,13 +55,7 @@ namespace UnityLLMAPI.Examples
                 wordWrap = true
             };
         }
-
-        private void OnGUI()
-        {
-            if (openAIService == null)return; 
-            windowRect = GUILayout.Window(0, windowRect, DrawChatWindow, "Chat with AI");
-        }
-
+        
         private void DrawChatWindow(int windowID)
         {
             GUILayout.BeginVertical();
