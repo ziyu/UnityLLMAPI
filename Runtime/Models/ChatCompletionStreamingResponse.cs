@@ -25,5 +25,20 @@ namespace UnityLLMAPI.Models
     {
         public string role;
         public string content;
+        public ToolCall[] tool_calls;
+    }
+
+    [Serializable]
+    public class ToolCallChunk
+    {
+        public string index;
+        public ToolCallFunctionChunk function;
+    }
+
+    [Serializable]
+    public class ToolCallFunctionChunk
+    {
+        public string name;
+        public string arguments;
     }
 }

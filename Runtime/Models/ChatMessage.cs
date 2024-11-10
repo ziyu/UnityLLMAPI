@@ -19,10 +19,37 @@ namespace UnityLLMAPI.Models
         /// </summary>
         public string content;
 
+        /// <summary>
+        /// Tool calls made by the assistant
+        /// </summary>
+        public ToolCall[] tool_calls;
+
+        /// <summary>
+        /// Name of the tool being responded to
+        /// </summary>
+        public string tool_call_id;
+
+        /// <summary>
+        /// Name of the tool being responded to
+        /// </summary>
+        public string name;
+
         public ChatMessage(string role, string content)
         {
             this.role = role;
             this.content = content;
+        }
+
+        /// <summary>
+        /// Create a tool response message
+        /// </summary>
+        public static ChatMessage CreateToolResponse(string toolCallId, string name, string content)
+        {
+            return new ChatMessage("tool", content)
+            {
+                tool_call_id = toolCallId,
+                name = name
+            };
         }
     }
 
@@ -37,6 +64,8 @@ namespace UnityLLMAPI.Models
         public float temperature = 0.7f;
         public int max_tokens = 1000;
         public bool stream = false;
+        public Tool[] tools;
+        public string tool_choice = "auto";
     }
 
     /// <summary>

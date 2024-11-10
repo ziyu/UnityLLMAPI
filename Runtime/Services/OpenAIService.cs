@@ -42,6 +42,14 @@ namespace UnityLLMAPI.Services
         /// </summary>
         public async Task<string> ChatCompletion(List<ChatMessage> messages, string model = null)
         {
+            return await ChatCompletionWithTools(messages, null, null, model);
+        }
+
+        /// <summary>
+        /// Send a chat completion request with tools to OpenAI
+        /// </summary>
+        public async Task<string> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, Func<ToolCall, Task<string>> toolHandler, string model = null)
+        {
             try
             {
                 string useModel = model ?? config.defaultModel;
@@ -50,7 +58,9 @@ namespace UnityLLMAPI.Services
                     model = useModel,
                     messages = messages.ToArray(),
                     temperature = config.temperature,
-                    max_tokens = config.maxTokens
+                    max_tokens = config.maxTokens,
+                    tools = tools?.ToArray(),
+                    tool_choice = tools != null ? "auto" : null
                 };
 
                 string jsonRequest = JsonUtility.ToJson(request);
@@ -59,12 +69,35 @@ namespace UnityLLMAPI.Services
                 string jsonResponse = await HttpClient.PostJsonAsync(url, jsonRequest, config.apiKey);
                 var response = JsonUtility.FromJson<ChatCompletionResponse>(jsonResponse);
 
-                if (response?.choices != null && response.choices.Length > 0)
+                if (response?.choices == null || response.choices.Length == 0)
                 {
-                    return response.choices[0].message.content;
+                    throw new Exception("No response choices available");
                 }
-                
-                throw new Exception("No response choices available");
+
+                var choice = response.choices[0];
+                var message = choice.message;
+
+                // Handle tool calls if present
+                if (toolHandler != null && message.tool_calls != null && message.tool_calls.Length > 0)
+                {
+                    var toolResponses = new List<ChatMessage>(messages);
+                    toolResponses.Add(message); // Add the assistant's message with tool calls
+
+                    foreach (var toolCall in message.tool_calls)
+                    {
+                        string toolResult = await toolHandler(toolCall);
+                        toolResponses.Add(ChatMessage.CreateToolResponse(
+                            toolCall.id,
+                            toolCall.function.name,
+                            toolResult
+                        ));
+                    }
+
+                    // Get final response after tool calls
+                    return await ChatCompletionWithTools(toolResponses, tools, toolHandler, model);
+                }
+
+                return message.content;
             }
             catch (Exception e)
             {
@@ -78,6 +111,14 @@ namespace UnityLLMAPI.Services
         /// </summary>
         public async Task ChatCompletionStreaming(List<ChatMessage> messages, Action<string> onChunk, string model = null)
         {
+            await ChatCompletionStreamingWithTools(messages, null, null, onChunk, model);
+        }
+
+        /// <summary>
+        /// Send a streaming chat completion request with tools to OpenAI
+        /// </summary>
+        public async Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Func<ToolCall, Task<string>> toolHandler, Action<string> onChunk, string model = null)
+        {
             try
             {
                 string useModel = model ?? config.defaultModel;
@@ -87,26 +128,61 @@ namespace UnityLLMAPI.Services
                     messages = messages.ToArray(),
                     temperature = config.temperature,
                     max_tokens = config.maxTokens,
-                    stream = true
+                    stream = true,
+                    tools = tools?.ToArray(),
+                    tool_choice = tools != null ? "auto" : null
                 };
 
                 string jsonRequest = JsonUtility.ToJson(request);
                 string url = $"{config.apiBaseUrl}/chat/completions";
 
-                await HttpClient.PostJsonStreamAsync(url, jsonRequest, config.apiKey, line =>
+                List<ToolCall> currentToolCalls = new List<ToolCall>();
+                ChatMessage currentMessage = new ChatMessage("assistant", "");
+
+                await HttpClient.PostJsonStreamAsync(url, jsonRequest, config.apiKey, async line =>
                 {
                     if (string.IsNullOrEmpty(line) || !line.StartsWith("data: ")) return;
 
                     string jsonData = line.Substring(6);
-                    if (jsonData == "[DONE]") return;
+                    if (jsonData == "[DONE]")
+                    {
+                        // Handle tool calls if present
+                        if (toolHandler != null && currentToolCalls.Count > 0)
+                        {
+                            var toolResponses = new List<ChatMessage>(messages);
+                            toolResponses.Add(currentMessage);
+
+                            foreach (var toolCall in currentToolCalls)
+                            {
+                                string toolResult = await toolHandler(toolCall);
+                                toolResponses.Add(ChatMessage.CreateToolResponse(
+                                    toolCall.id,
+                                    toolCall.function.name,
+                                    toolResult
+                                ));
+                            }
+
+                            // Get final response after tool calls
+                            await ChatCompletionStreamingWithTools(toolResponses, tools, toolHandler, onChunk, model);
+                        }
+                        return;
+                    }
 
                     try
                     {
                         var response = JsonUtility.FromJson<ChatCompletionChunkResponse>(jsonData);
-                        if (response?.choices != null && response.choices.Length > 0 && 
-                            !string.IsNullOrEmpty(response.choices[0].delta?.content))
+                        if (response?.choices != null && response.choices.Length > 0)
                         {
-                            onChunk?.Invoke(response.choices[0].delta.content);
+                            var delta = response.choices[0].delta;
+                            if (!string.IsNullOrEmpty(delta?.content))
+                            {
+                                currentMessage.content += delta.content;
+                                onChunk?.Invoke(delta.content);
+                            }
+                            if (delta?.tool_calls != null)
+                            {
+                                currentToolCalls.AddRange(delta.tool_calls);
+                            }
                         }
                     }
                     catch (Exception e)

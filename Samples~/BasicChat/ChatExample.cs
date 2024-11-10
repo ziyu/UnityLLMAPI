@@ -1,6 +1,8 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
+using System;
 using UnityLLMAPI.Services;
 using UnityLLMAPI.Models;
 
@@ -13,15 +15,17 @@ namespace UnityLLMAPI.Examples
     {
         [Header("Chat Settings")]
         [Tooltip("System message to set AI behavior")]
-        [SerializeField] private string systemMessage = "You are a helpful assistant. Please provide clear and concise responses.";
+        [SerializeField] private string systemMessage = "You are a helpful assistant that can use tools.";
 
         private OpenAIService openAIService;
         private List<ChatMessage> chatHistory = new();
+        private List<Tool> tools = new();
         private bool isProcessing = false;
         private string userInput = "";
         private Vector2 scrollPosition;
         private Rect windowRect = new Rect(10, 10, 400, 600);
         private bool useStreaming = true;
+        private bool useTools = true;
         private StringBuilder currentStreamingMessage;
         
         // GUI Styles
@@ -33,8 +37,56 @@ namespace UnityLLMAPI.Examples
             // Initialize service and chat history
             openAIService = new OpenAIService();
 
+            // Initialize tools
+            InitializeTools();
+
             // Add system message
             chatHistory.Add(OpenAIService.CreateSystemMessage(systemMessage));
+        }
+
+        private void InitializeTools()
+        {
+            tools = new List<Tool>
+            {
+                new Tool
+                {
+                    name = "get_current_time",
+                    description = "Get the current time",
+                    parameters = new ToolParameters
+                    {
+                        type = "object",
+                        properties = new ToolParameterProperty[]
+                        {
+                            new ToolParameterProperty
+                            {
+                                name = "format",
+                                type = "string",
+                                description = "The format to return the time in (e.g., 'HH:mm', 'hh:mm tt')"
+                            }
+                        },
+                        required = new string[] { "format" }
+                    }
+                },
+                new Tool
+                {
+                    name = "get_weather",
+                    description = "Get the current weather",
+                    parameters = new ToolParameters
+                    {
+                        type = "object",
+                        properties = new ToolParameterProperty[]
+                        {
+                            new ToolParameterProperty
+                            {
+                                name = "location",
+                                type = "string",
+                                description = "The location to get weather for"
+                            }
+                        },
+                        required = new string[] { "location" }
+                    }
+                }
+            };
         }
         
         private void OnGUI()
@@ -64,7 +116,7 @@ namespace UnityLLMAPI.Examples
             GUILayout.BeginVertical();
 
             // Chat history area
-            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(470));
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(450));
             foreach (var message in chatHistory)
             {
                 if (message.role != "system") // Don't display system messages
@@ -72,6 +124,17 @@ namespace UnityLLMAPI.Examples
                     string role = char.ToUpper(message.role[0]) + message.role.Substring(1);
                     GUILayout.Label($"{role}:", boldLabelStyle);
                     GUILayout.TextArea(message.content, wordWrappedLabelStyle);
+
+                    // Display tool calls if present
+                    if (message.tool_calls != null)
+                    {
+                        foreach (var toolCall in message.tool_calls)
+                        {
+                            GUILayout.Label($"Tool Call: {toolCall.function.name}", boldLabelStyle);
+                            GUILayout.TextArea($"Arguments: {toolCall.function.arguments}", wordWrappedLabelStyle);
+                        }
+                    }
+
                     GUILayout.Space(10);
                 }
             }
@@ -85,9 +148,10 @@ namespace UnityLLMAPI.Examples
 
             GUILayout.EndScrollView();
 
-            // Streaming toggle
+            // Toggles
             GUILayout.BeginHorizontal();
             useStreaming = GUILayout.Toggle(useStreaming, "Use Streaming");
+            useTools = GUILayout.Toggle(useTools, "Use Tools");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -139,10 +203,22 @@ namespace UnityLLMAPI.Examples
                     currentStreamingMessage = new StringBuilder();
                     
                     // Get streaming response
-                    await openAIService.ChatCompletionStreaming(chatHistory, chunk =>
+                    if (useTools)
                     {
-                        currentStreamingMessage.Append(chunk);
-                    });
+                        await openAIService.ChatCompletionStreamingWithTools(
+                            chatHistory, 
+                            tools,
+                            HandleToolCall,
+                            chunk => currentStreamingMessage.Append(chunk)
+                        );
+                    }
+                    else
+                    {
+                        await openAIService.ChatCompletionStreaming(
+                            chatHistory,
+                            chunk => currentStreamingMessage.Append(chunk)
+                        );
+                    }
 
                     // Add completed message to history
                     chatHistory.Add(OpenAIService.CreateAssistantMessage(currentStreamingMessage.ToString()));
@@ -151,7 +227,19 @@ namespace UnityLLMAPI.Examples
                 else
                 {
                     // Get regular response
-                    string response = await openAIService.ChatCompletion(chatHistory);
+                    string response;
+                    if (useTools)
+                    {
+                        response = await openAIService.ChatCompletionWithTools(
+                            chatHistory,
+                            tools,
+                            HandleToolCall
+                        );
+                    }
+                    else
+                    {
+                        response = await openAIService.ChatCompletion(chatHistory);
+                    }
                     chatHistory.Add(OpenAIService.CreateAssistantMessage(response));
                 }
             }
@@ -165,6 +253,44 @@ namespace UnityLLMAPI.Examples
             {
                 isProcessing = false;
             }
+        }
+
+        private async Task<string> HandleToolCall(ToolCall toolCall)
+        {
+            try
+            {
+                switch (toolCall.function.name)
+                {
+                    case "get_current_time":
+                        var timeArgs = JsonUtility.FromJson<GetTimeArgs>(toolCall.function.arguments);
+                        return DateTime.Now.ToString(timeArgs.format);
+
+                    case "get_weather":
+                        var weatherArgs = JsonUtility.FromJson<GetWeatherArgs>(toolCall.function.arguments);
+                        // In a real app, you would call a weather API here
+                        return $"Simulated weather for {weatherArgs.location}: 72°F, Sunny";
+
+                    default:
+                        throw new ArgumentException($"Unknown tool: {toolCall.function.name}");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error handling tool call: {e.Message}");
+                return $"Error: {e.Message}";
+            }
+        }
+
+        [Serializable]
+        private class GetTimeArgs
+        {
+            public string format;
+        }
+
+        [Serializable]
+        private class GetWeatherArgs
+        {
+            public string location;
         }
     }
 }
