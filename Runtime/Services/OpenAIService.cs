@@ -61,9 +61,9 @@ namespace UnityLLMAPI.Services
                 {
                     throw new LLMValidationException("Message role cannot be empty", "role");
                 }
-                if (message.content == null) // Allow empty content for function calls
+                if (string.IsNullOrEmpty(message.content)&&message.tool_calls==null) // Allow empty content for function calls
                 {
-                    throw new LLMValidationException("Message content cannot be null", "content");
+                    throw new LLMValidationException("Message content or tool use cannot be null", "content");
                 }
                 // Validate tool response messages
                 if (message.role == "tool")

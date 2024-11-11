@@ -31,7 +31,7 @@ namespace UnityLLMAPI.Config
 
         [Header("Debug Configuration")]
         public bool enableLogging = true;
-        public LogType minimumLogLevel = LogType.Log;
+        public LogType minimumLogLevel = LogType.Error;
 
         private void OnEnable()
         {

@@ -33,9 +33,33 @@ namespace UnityLLMAPI.Services
             
             config.ValidateConfig();
 
-            if (!string.IsNullOrEmpty(config.systemPrompt))
+            AddSystemMessage();
+        }
+
+        /// <summary>
+        /// Create a System Message
+        /// </summary>
+        /// <param name="systemPrompt"></param>
+        /// <returns></returns>
+        public ChatMessage CreateSystemMessage(string systemPrompt=null)
+        {
+            if (string.IsNullOrEmpty(systemPrompt))
             {
-                AddMessage(OpenAIService.CreateSystemMessage(config.systemPrompt));
+                systemPrompt = config.systemPrompt;
+            }
+            if (!string.IsNullOrEmpty(systemPrompt))
+            {
+                return OpenAIService.CreateSystemMessage(systemPrompt);
+            }
+            return null;
+        }
+
+        public void AddSystemMessage(string systemPrompt=null)
+        {
+            var systemMessage = CreateSystemMessage(systemPrompt);
+            if (systemMessage != null)
+            {
+                AddMessage(systemMessage);
             }
         }
 
@@ -181,9 +205,13 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Clear conversation history
         /// </summary>
-        public void ClearHistory()
+        public void ClearHistory(bool keepSystemMessage=true)
         {
             messageHistory.Clear();
+            if (keepSystemMessage)
+            {
+                AddSystemMessage();
+            }
         }
     }
 }

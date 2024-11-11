@@ -29,9 +29,11 @@ namespace UnityLLMAPI.Interfaces
         /// <returns>Assistant's response message</returns>
         Task<ChatMessage> SendMessage(string message, string model = null);
 
+
         /// <summary>
-        /// Clear conversation history
+        /// Clear Message History
         /// </summary>
-        void ClearHistory();
+        /// <param name="keepSystemMessage"></param>
+        void ClearHistory(bool keepSystemMessage=true);
     }
 }
