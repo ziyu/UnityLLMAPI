@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -17,53 +18,81 @@ namespace UnityLLMAPI.Utils
         /// <param name="url">Target URL</param>
         /// <param name="jsonData">JSON data to send</param>
         /// <param name="apiKey">API key for authorization</param>
+        /// <param name="cancellationToken">Token to cancel the operation</param>
         /// <returns>Response as string</returns>
-        public static async Task<string> PostJsonAsync(string url, string jsonData, string apiKey)
+        public static async Task<string> PostJsonAsync(string url, string jsonData, string apiKey, CancellationToken cancellationToken = default)
         {
-            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            UnityWebRequest request = null;
+            try
             {
-                try
-                {
-                    LLMLogging.Log($"Sending POST request to {url}", LogType.Log);
-                    
-                    byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
-                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                    request.downloadHandler = new DownloadHandlerBuffer();
-                    
-                    request.SetRequestHeader("Content-Type", "application/json");
-                    request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                request = new UnityWebRequest(url, "POST");
+                LLMLogging.Log($"Sending POST request to {url}", LogType.Log);
+                
+                byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
 
-                    TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
-                    
-                    request.SendWebRequest().completed += operation =>
+                TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
+
+                // 注册取消回调
+                cancellationToken.Register(() => 
+                {
+                    if (request != null && !request.isDone)
                     {
-                        if (request.result == UnityWebRequest.Result.Success)
-                        {
-                            LLMLogging.Log("Request completed successfully", LogType.Log);
-                            tcs.SetResult(request.downloadHandler.text);
-                        }
-                        else
-                        {
-                            string errorMessage = $"HTTP Error: {request.error}";
-                            string responseContent = request.downloadHandler?.text;
-                            LLMLogging.Log(errorMessage, LogType.Error);
-                            
-                            if (!string.IsNullOrEmpty(responseContent))
-                            {
-                                LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
-                            }
-
-                            tcs.SetException(new LLMNetworkException(errorMessage+":"+responseContent ));
-                        }
-                    };
-
-                    return await tcs.Task;
-                }
-                catch (Exception e)
+                        LLMLogging.Log("Request cancelled by user", LogType.Log);
+                        request.Abort();
+                        tcs.TrySetCanceled();
+                    }
+                });
+                
+                request.SendWebRequest().completed += operation =>
                 {
-                    string errorMessage = $"Exception in PostJsonAsync: {e.Message}";
-                    LLMLogging.Log(errorMessage, LogType.Error);
-                    throw new LLMNetworkException(errorMessage, e);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    if (request.result == UnityWebRequest.Result.Success)
+                    {
+                        LLMLogging.Log("Request completed successfully", LogType.Log);
+                        tcs.TrySetResult(request.downloadHandler.text);
+                    }
+                    else if (request.result != UnityWebRequest.Result.ConnectionError || !cancellationToken.IsCancellationRequested)
+                    {
+                        string errorMessage = $"HTTP Error: {request.error}";
+                        string responseContent = request.downloadHandler?.text;
+                        LLMLogging.Log(errorMessage, LogType.Error);
+                        
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
+                        }
+
+                        tcs.TrySetException(new LLMNetworkException(errorMessage+":"+responseContent));
+                    }
+                };
+
+                return await tcs.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                LLMLogging.Log("Operation was cancelled", LogType.Log);
+                throw;
+            }
+            catch (Exception e)
+            {
+                string errorMessage = $"Exception in PostJsonAsync: {e.Message}";
+                LLMLogging.Log(errorMessage, LogType.Error);
+                throw new LLMNetworkException(errorMessage, e);
+            }
+            finally
+            {
+                if (request != null)
+                {
+                    request.Dispose();
                 }
             }
         }
@@ -75,46 +104,74 @@ namespace UnityLLMAPI.Utils
         /// <param name="jsonData">JSON data to send</param>
         /// <param name="apiKey">API key for authorization</param>
         /// <param name="onData">Callback for receiving raw data lines</param>
-        public static async Task PostJsonStreamAsync(string url, string jsonData, string apiKey, Action<string> onData)
+        /// <param name="cancellationToken">Token to cancel the operation</param>
+        public static async Task PostJsonStreamAsync(string url, string jsonData, string apiKey, Action<string> onData, CancellationToken cancellationToken = default)
         {
-            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            UnityWebRequest request = null;
+            try
             {
-                try
-                {
-                    LLMLogging.Log($"Sending streaming POST request to {url}", LogType.Log);
-                    
-                    byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
-                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
-                    request.downloadHandler = new StreamingDownloadHandler(onData);
-                    
-                    request.SetRequestHeader("Content-Type", "application/json");
-                    request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
-                    request.SetRequestHeader("Accept", "text/event-stream");
+                request = new UnityWebRequest(url, "POST");
+                LLMLogging.Log($"Sending streaming POST request to {url}", LogType.Log);
+                
+                byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonData);
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new StreamingDownloadHandler(onData);
+                
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                request.SetRequestHeader("Accept", "text/event-stream");
 
-                    TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-                    
-                    request.SendWebRequest().completed += operation =>
+                TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+
+                // 注册取消回调
+                cancellationToken.Register(() => 
+                {
+                    if (request != null && !request.isDone)
                     {
-                        if (request.result == UnityWebRequest.Result.Success)
-                        {
-                            LLMLogging.Log("Streaming request completed successfully", LogType.Log);
-                            tcs.SetResult(true);
-                        }
-                        else
-                        {
-                            string errorMessage = $"HTTP Error: {request.error}";
-                            LLMLogging.Log(errorMessage, LogType.Error);
-                            tcs.SetException(new LLMNetworkException(errorMessage));
-                        }
-                    };
-
-                    await tcs.Task;
-                }
-                catch (Exception e)
+                        LLMLogging.Log("Request cancelled by user", LogType.Log);
+                        request.Abort();
+                        tcs.TrySetCanceled();
+                    }
+                });
+                
+                request.SendWebRequest().completed += operation =>
                 {
-                    string errorMessage = $"Exception in PostJsonStreamAsync: {e.Message}";
-                    LLMLogging.Log(errorMessage, LogType.Error);
-                    throw new LLMNetworkException(errorMessage, e);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    if (request.result == UnityWebRequest.Result.Success)
+                    {
+                        LLMLogging.Log("Streaming request completed successfully", LogType.Log);
+                        tcs.TrySetResult(true);
+                    }
+                    else if (request.result != UnityWebRequest.Result.ConnectionError || !cancellationToken.IsCancellationRequested)
+                    {
+                        string errorMessage = $"HTTP Error: {request.error}";
+                        LLMLogging.Log(errorMessage, LogType.Error);
+                        tcs.TrySetException(new LLMNetworkException(errorMessage));
+                    }
+                };
+
+                await tcs.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                LLMLogging.Log("Operation was cancelled", LogType.Log);
+                throw;
+            }
+            catch (Exception e)
+            {
+                string errorMessage = $"Exception in PostJsonStreamAsync: {e.Message}";
+                LLMLogging.Log(errorMessage, LogType.Error);
+                throw new LLMNetworkException(errorMessage, e);
+            }
+            finally
+            {
+                if (request != null)
+                {
+                    request.Dispose();
                 }
             }
         }
@@ -124,48 +181,76 @@ namespace UnityLLMAPI.Utils
         /// </summary>
         /// <param name="url">Target URL</param>
         /// <param name="apiKey">API key for authorization</param>
+        /// <param name="cancellationToken">Token to cancel the operation</param>
         /// <returns>Response as string</returns>
-        public static async Task<string> GetAsync(string url, string apiKey)
+        public static async Task<string> GetAsync(string url, string apiKey, CancellationToken cancellationToken = default)
         {
-            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            UnityWebRequest request = null;
+            try
             {
-                try
+                request = UnityWebRequest.Get(url);
+                LLMLogging.Log($"Sending GET request to {url}", LogType.Log);
+                
+                request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+                
+                TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
+
+                // 注册取消回调
+                cancellationToken.Register(() => 
                 {
-                    LLMLogging.Log($"Sending GET request to {url}", LogType.Log);
-                    
-                    request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
-                    
-                    TaskCompletionSource<string> tcs = new TaskCompletionSource<string>();
-                    
-                    request.SendWebRequest().completed += operation =>
+                    if (request != null && !request.isDone)
                     {
-                        if (request.result == UnityWebRequest.Result.Success)
-                        {
-                            LLMLogging.Log("GET request completed successfully", LogType.Log);
-                            tcs.SetResult(request.downloadHandler.text);
-                        }
-                        else
-                        {
-                            string errorMessage = $"HTTP Error: {request.error}";
-                            string responseContent = request.downloadHandler?.text;
-                            LLMLogging.Log(errorMessage, LogType.Error);
-                            
-                            if (!string.IsNullOrEmpty(responseContent))
-                            {
-                                LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
-                            }
-
-                            tcs.SetException(new LLMNetworkException(errorMessage+":"+responseContent));
-                        }
-                    };
-
-                    return await tcs.Task;
-                }
-                catch (Exception e)
+                        LLMLogging.Log("Request cancelled by user", LogType.Log);
+                        request.Abort();
+                        tcs.TrySetCanceled();
+                    }
+                });
+                
+                request.SendWebRequest().completed += operation =>
                 {
-                    string errorMessage = $"Exception in GetAsync: {e.Message}";
-                    LLMLogging.Log(errorMessage, LogType.Error);
-                    throw new LLMNetworkException(errorMessage, e);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    if (request.result == UnityWebRequest.Result.Success)
+                    {
+                        LLMLogging.Log("GET request completed successfully", LogType.Log);
+                        tcs.TrySetResult(request.downloadHandler.text);
+                    }
+                    else if (request.result != UnityWebRequest.Result.ConnectionError || !cancellationToken.IsCancellationRequested)
+                    {
+                        string errorMessage = $"HTTP Error: {request.error}";
+                        string responseContent = request.downloadHandler?.text;
+                        LLMLogging.Log(errorMessage, LogType.Error);
+                        
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
+                        }
+
+                        tcs.TrySetException(new LLMNetworkException(errorMessage+":"+responseContent));
+                    }
+                };
+
+                return await tcs.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                LLMLogging.Log("Operation was cancelled", LogType.Log);
+                throw;
+            }
+            catch (Exception e)
+            {
+                string errorMessage = $"Exception in GetAsync: {e.Message}";
+                LLMLogging.Log(errorMessage, LogType.Error);
+                throw new LLMNetworkException(errorMessage, e);
+            }
+            finally
+            {
+                if (request != null)
+                {
+                    request.Dispose();
                 }
             }
         }

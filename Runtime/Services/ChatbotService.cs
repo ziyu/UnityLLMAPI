@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityLLMAPI.Config;
 using UnityLLMAPI.Interfaces;
@@ -15,11 +16,17 @@ namespace UnityLLMAPI.Services
         private readonly OpenAIService service;
         private readonly List<ChatMessage> messageHistory = new();
         private readonly ChatbotConfig config;
+        private bool isSending = false;
 
         /// <summary>
         /// Get all messages in the conversation history
         /// </summary>
         public IReadOnlyList<ChatMessage> Messages => messageHistory;
+
+        /// <summary>
+        /// 是否正在发送消息
+        /// </summary>
+        public bool IsSending => isSending;
 
         /// <summary>
         /// Initialize a new chatbot service
@@ -79,128 +86,161 @@ namespace UnityLLMAPI.Services
         /// </summary>
         /// <param name="message">User message content</param>
         /// <param name="model">Optional model override</param>
+        /// <param name="cancellationToken">Token to cancel the operation</param>
         /// <returns>Assistant's response message</returns>
-        public async Task<ChatMessage> SendMessage(string message, string model = null)
+        public async Task<ChatMessage> SendMessage(string message, string model = null, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(message)) throw new ArgumentException("Message cannot be empty", nameof(message));
+            if (isSending) throw new InvalidOperationException("A message is already being sent");
 
             // Add user message to history
             var userMessage = OpenAIService.CreateUserMessage(message);
             messageHistory.Add(userMessage);
 
-            // Get response from OpenAI
-            ChatMessage response;
-            if (config.toolSet != null)
+            try
             {
-                response = await GetResponseWithTools(model ?? config.defaultModel);
-            }
-            else if (config.useStreaming)
-            {
-                await service.ChatCompletionStreaming(messageHistory, OnStreamingChunk, model ?? config.defaultModel);
-                // Get the last message from history since streaming updates it
-                response = messageHistory[^1];
-            }
-            else
-            {
-                response = await service.ChatCompletion(messageHistory, model ?? config.defaultModel);
-                messageHistory.Add(response);
-            }
+                isSending = true;
 
-            return response;
+                // Get response from OpenAI
+                ChatMessage response;
+                if (config.toolSet != null)
+                {
+                    response = await GetResponseWithTools(model ?? config.defaultModel, cancellationToken);
+                }
+                else if (config.useStreaming)
+                {
+                    await service.ChatCompletionStreaming(messageHistory, OnStreamingChunk, model ?? config.defaultModel, cancellationToken);
+                    // Get the last message from history since streaming updates it
+                    response = messageHistory[^1];
+                }
+                else
+                {
+                    response = await service.ChatCompletion(messageHistory, model ?? config.defaultModel, cancellationToken);
+                    messageHistory.Add(response);
+                }
+
+                return response;
+            }
+            catch (Exception)
+            {
+                // 如果发生错误，从历史记录中移除用户消息
+                messageHistory.RemoveAt(messageHistory.Count - 1);
+                throw;
+            }
+            finally
+            {
+                isSending = false;
+            }
         }
 
-        private async Task<ChatMessage> GetResponseWithTools(string model)
+        private async Task<ChatMessage> GetResponseWithTools(string model, CancellationToken cancellationToken)
         {
             ChatMessage response = null;
             bool continueConversation;
 
             do
             {
-                // Get response from OpenAI
-                if (config.useStreaming)
+                try
                 {
-                    await service.ChatCompletionStreamingWithTools(
-                        messageHistory,
-                        config.toolSet.Tools,
-                        OnStreamingChunk,
-                        model
-                    );
-                    // Get the last message from history since streaming updates it
-                    response = messageHistory[^1];
-                }
-                else
-                {
-                    response = await service.ChatCompletionWithTools(
-                        messageHistory,
-                        config.toolSet.Tools,
-                        model
-                    );
-                    messageHistory.Add(response);
-                }
-
-                // Check if we need to handle tool calls
-                continueConversation = false;
-                if (response.tool_calls is { Length: > 0 })
-                {
-                    foreach (var toolCall in response.tool_calls)
+                    // Get response from OpenAI
+                    if (config.useStreaming)
                     {
-                        // Check if we should execute this tool call
-                        bool shouldExecute = true;
-                        if (config.shouldExecuteTool != null)
-                        {
-                            shouldExecute = await config.shouldExecuteTool(toolCall);
-                        }
+                        await service.ChatCompletionStreamingWithTools(
+                            messageHistory,
+                            config.toolSet.Tools,
+                            OnStreamingChunk,
+                            model,
+                            cancellationToken
+                        );
+                        // Get the last message from history since streaming updates it
+                        response = messageHistory[^1];
+                    }
+                    else
+                    {
+                        response = await service.ChatCompletionWithTools(
+                            messageHistory,
+                            config.toolSet.Tools,
+                            model,
+                            cancellationToken
+                        );
+                        messageHistory.Add(response);
+                    }
 
-                        if (!shouldExecute)
+                    // Check if we need to handle tool calls
+                    continueConversation = false;
+                    if (response.tool_calls is { Length: > 0 })
+                    {
+                        foreach (var toolCall in response.tool_calls)
                         {
-                            var skipResponse = ChatMessage.CreateToolResponse(
-                                toolCall.id,
-                                toolCall.function.name,
-                                config.skipToolMessage
-                            );
-                            messageHistory.Add(skipResponse);
-                            continue;
-                        }
+                            // 检查是否已取消
+                            cancellationToken.ThrowIfCancellationRequested();
 
-                        try
-                        {
-                            string toolResult = await config.toolSet.ExecuteTool(toolCall);
-                            var toolResponse = ChatMessage.CreateToolResponse(
-                                toolCall.id,
-                                toolCall.function.name,
-                                toolResult
-                            );
-                            messageHistory.Add(toolResponse);
-                            continueConversation = true;
-                        }
-                        catch (Exception e)
-                        {
-                            // Add error as tool response and stop conversation
-                            var errorResponse = ChatMessage.CreateToolResponse(
-                                toolCall.id,
-                                toolCall.function.name,
-                                $"Error executing tool: {e.Message}"
-                            );
-                            messageHistory.Add(errorResponse);
-                            continueConversation = false;
-                            break;
+                            // Check if we should execute this tool call
+                            bool shouldExecute = true;
+                            if (config.shouldExecuteTool != null)
+                            {
+                                shouldExecute = await config.shouldExecuteTool(toolCall);
+                            }
+
+                            if (!shouldExecute)
+                            {
+                                var skipResponse = ChatMessage.CreateToolResponse(
+                                    toolCall.id,
+                                    toolCall.function.name,
+                                    config.skipToolMessage
+                                );
+                                messageHistory.Add(skipResponse);
+                                continue;
+                            }
+
+                            try
+                            {
+                                string toolResult = await config.toolSet.ExecuteTool(toolCall);
+                                var toolResponse = ChatMessage.CreateToolResponse(
+                                    toolCall.id,
+                                    toolCall.function.name,
+                                    toolResult
+                                );
+                                messageHistory.Add(toolResponse);
+                                continueConversation = true;
+                            }
+                            catch (Exception e)
+                            {
+                                // Add error as tool response and stop conversation
+                                var errorResponse = ChatMessage.CreateToolResponse(
+                                    toolCall.id,
+                                    toolCall.function.name,
+                                    $"Error executing tool: {e.Message}"
+                                );
+                                messageHistory.Add(errorResponse);
+                                continueConversation = false;
+                                break;
+                            }
                         }
                     }
+                }
+                catch (Exception)
+                {
+                    // 如果在工具调用过程中出错，需要清理最后一条响应
+                    if (response != null && messageHistory.Contains(response))
+                    {
+                        messageHistory.Remove(response);
+                    }
+                    throw;
                 }
             } while (continueConversation);
 
             return response;
         }
 
-        void OnStreamingChunk(ChatMessage chatMessage,bool isDone)
+        void OnStreamingChunk(ChatMessage chatMessage, bool isDone)
         {
             if (isDone)
             {
                 messageHistory.Add(chatMessage);
             }
-            config.onStreamingChunk?.Invoke(chatMessage,isDone);
+            config.onStreamingChunk?.Invoke(chatMessage, isDone);
         }
-
 
         /// <summary>
         /// Clear conversation history

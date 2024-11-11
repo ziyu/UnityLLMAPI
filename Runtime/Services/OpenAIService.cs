@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
@@ -122,23 +123,23 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Send a chat completion request to OpenAI
         /// </summary>
-        public async Task<ChatMessage> ChatCompletion(List<ChatMessage> messages, string model = null)
+        public async Task<ChatMessage> ChatCompletion(List<ChatMessage> messages, string model, CancellationToken cancellationToken = default)
         {
-            return await SendChatRequest(messages, model);
+            return await SendChatRequest(messages, model, null, cancellationToken);
         }
 
         /// <summary>
         /// Send a chat completion request with tools to OpenAI
         /// </summary>
-        public async Task<ChatMessage> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, string model = null)
+        public async Task<ChatMessage> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, string model = null, CancellationToken cancellationToken = default)
         {
-            return await SendChatRequest(messages, model, tools);
+            return await SendChatRequest(messages, model, tools, cancellationToken);
         }
 
         /// <summary>
         /// Core method to send chat requests
         /// </summary>
-        private async Task<ChatMessage> SendChatRequest(List<ChatMessage> messages, string model = null, List<Tool> tools = null)
+        private async Task<ChatMessage> SendChatRequest(List<ChatMessage> messages, string model = null, List<Tool> tools = null, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -151,8 +152,13 @@ namespace UnityLLMAPI.Services
                 LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
                 LLMLogging.Log($"Sending request to OpenAI API", LogType.Log);
                 
-                string jsonResponse = await HttpClient.PostJsonAsync(url, jsonRequest, config.apiKey);
+                string jsonResponse = await HttpClient.PostJsonAsync(url, jsonRequest, config.apiKey, cancellationToken);
                 return HandleResponse(jsonResponse);
+            }
+            catch (OperationCanceledException)
+            {
+                LLMLogging.Log("Chat completion was cancelled", LogType.Log);
+                throw;
             }
             catch (Exception e) when (!(e is LLMException))
             {
@@ -164,23 +170,23 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Send a streaming chat completion request to OpenAI
         /// </summary>
-        public async Task ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null)
+        public async Task ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, CancellationToken cancellationToken = default)
         {
-            await SendStreamingRequest(messages, onChunk, model);
+            await SendStreamingRequest(messages, onChunk, model, null, cancellationToken);
         }
 
         /// <summary>
         /// Send a streaming chat completion request with tools to OpenAI
         /// </summary>
-        public async Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Action<ChatMessage,bool> onChunk, string model = null)
+        public async Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Action<ChatMessage,bool> onChunk, string model = null, CancellationToken cancellationToken = default)
         {
-            await SendStreamingRequest(messages, onChunk, model, tools);
+            await SendStreamingRequest(messages, onChunk, model, tools, cancellationToken);
         }
 
         /// <summary>
         /// Core method to send streaming requests
         /// </summary>
-        private async Task SendStreamingRequest(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, List<Tool> tools = null)
+        private async Task SendStreamingRequest(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, List<Tool> tools = null, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -247,7 +253,12 @@ namespace UnityLLMAPI.Services
                         LLMLogging.Log(errorMessage, LogType.Error);
                         throw new LLMResponseException(errorMessage, jsonData);
                     }
-                });
+                }, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                LLMLogging.Log("Streaming request was cancelled", LogType.Log);
+                throw;
             }
             catch (Exception e) when (!(e is LLMException))
             {
@@ -300,7 +311,7 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Send a completion request to OpenAI
         /// </summary>
-        public async Task<string> Completion(string prompt, string model = null)
+        public async Task<string> Completion(string prompt, string model, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(prompt))
             {
@@ -313,7 +324,7 @@ namespace UnityLLMAPI.Services
                 new ChatMessage("user", prompt)
             };
             
-            var response = await ChatCompletion(messages, model);
+            var response = await ChatCompletion(messages, model, cancellationToken);
             return response.content;
         }
 

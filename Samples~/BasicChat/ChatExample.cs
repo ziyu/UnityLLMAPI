@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System;
 using UnityLLMAPI.Services;
@@ -23,13 +24,13 @@ namespace UnityLLMAPI.Examples
         private ChatbotService chatbotService;
         private OpenAIConfig config;
         private ToolSet toolSet;
-        private bool isProcessing = false;
         private string userInput = "";
         private Vector2 scrollPosition;
         private Rect windowRect = new Rect(10, 10, 400, 600);
         private bool useStreaming = true;
         private StringBuilder currentStreamingMessage;
         private string errorMessage;
+        private CancellationTokenSource cancellationTokenSource;
 
         // Tool confirmation dialog
         private bool showToolConfirmation = false;
@@ -78,6 +79,13 @@ namespace UnityLLMAPI.Examples
             {
                 HandleError(new LLMException("Initialization failed", e));
             }
+        }
+
+        private void OnDestroy()
+        {
+            // 确保在销毁时取消所有进行中的操作
+            cancellationTokenSource?.Cancel();
+            cancellationTokenSource?.Dispose();
         }
 
         private void InitializeTools()
@@ -212,7 +220,7 @@ namespace UnityLLMAPI.Examples
             }
 
             // Show current streaming message if any
-            if (isProcessing && useStreaming && currentStreamingMessage != null)
+            if (chatbotService.IsSending && useStreaming && currentStreamingMessage != null)
             {
                 GUILayout.Label("Assistant:", boldLabelStyle);
                 GUILayout.TextArea(currentStreamingMessage.ToString(), wordWrappedLabelStyle);
@@ -224,23 +232,31 @@ namespace UnityLLMAPI.Examples
             useStreaming = GUILayout.Toggle(useStreaming, "Use Streaming");
 
             // Input area
-            GUI.enabled = !isProcessing;
             GUILayout.BeginHorizontal();
             
-            // Input field
+            // Input field (只在非处理状态时可用)
+            GUI.enabled = !chatbotService.IsSending;
             userInput = GUILayout.TextField(userInput, GUILayout.ExpandWidth(true));
             
-            // Send button
+            // Send button (只在非处理状态时可用)
             if (GUILayout.Button("Send", GUILayout.Width(60)) && !string.IsNullOrEmpty(userInput))
             {
                 SendMessage();
             }
-            
-            GUILayout.EndHorizontal();
             GUI.enabled = true;
 
+            // Cancel button (只在处理状态时可用)
+            GUI.enabled = chatbotService.IsSending;
+            if (GUILayout.Button("Cancel", GUILayout.Width(60)))
+            {
+                CancelOperation();
+            }
+            GUI.enabled = true;
+            
+            GUILayout.EndHorizontal();
+
             // Processing indicator
-            if (isProcessing)
+            if (chatbotService.IsSending)
             {
                 GUILayout.Label("Processing...");
             }
@@ -285,6 +301,7 @@ namespace UnityLLMAPI.Examples
         {
             string message = e switch
             {
+                OperationCanceledException => "操作已取消",
                 LLMConfigurationException => $"Configuration Error: {e.Message}",
                 LLMNetworkException => $"Network Error: {e.Message}",
                 LLMResponseException rex => $"API Error: {e.Message}\nResponse: {rex.ResponseContent}",
@@ -297,15 +314,26 @@ namespace UnityLLMAPI.Examples
             errorMessage = message;
         }
 
+        private void CancelOperation()
+        {
+            if (chatbotService.IsSending && cancellationTokenSource != null)
+            {
+                cancellationTokenSource.Cancel();
+            }
+        }
+
         private async void SendMessage()
         {
-            if (isProcessing || string.IsNullOrEmpty(userInput))
+            if (chatbotService.IsSending || string.IsNullOrEmpty(userInput))
                 return;
+
+            // 创建新的CancellationTokenSource
+            cancellationTokenSource?.Dispose();
+            cancellationTokenSource = new CancellationTokenSource();
 
             try
             {
                 errorMessage = null;
-                isProcessing = true;
                 string userMessage = userInput;
                 userInput = ""; // Clear input field
 
@@ -315,8 +343,8 @@ namespace UnityLLMAPI.Examples
                     currentStreamingMessage = new StringBuilder();
                 }
 
-                // Send message
-                await chatbotService.SendMessage(userMessage);
+                // Send message with cancellation token
+                await chatbotService.SendMessage(userMessage, null, cancellationTokenSource.Token);
 
                 // Clear streaming message
                 currentStreamingMessage = null;
@@ -327,11 +355,16 @@ namespace UnityLLMAPI.Examples
             }
             finally
             {
-                isProcessing = false;
+                // 清理CancellationTokenSource
+                if (cancellationTokenSource != null)
+                {
+                    cancellationTokenSource.Dispose();
+                    cancellationTokenSource = null;
+                }
             }
         }
 
-        private void OnStreamingChunk(ChatMessage message,bool isDone)
+        private void OnStreamingChunk(ChatMessage message, bool isDone)
         {
             if (currentStreamingMessage != null)
             {
