@@ -88,6 +88,11 @@ namespace UnityLLMAPI.Interfaces
         /// </summary>
         /// <param name="keepSystemMessage">Whether to keep the system message</param>
         void ClearHistory(bool keepSystemMessage = true);
+
+        /// <summary>
+        /// clear pending chat
+        /// </summary>
+        void ClearPending();
     }
 
     public struct ChatParams

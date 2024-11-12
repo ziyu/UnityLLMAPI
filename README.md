@@ -12,6 +12,11 @@
 - 可配置的API参数
 - 对话历史管理
 - 自定义JSON序列化
+- 状态管理系统
+  - 实时状态追踪
+  - 状态变更事件通知
+  - 会话级别状态同步
+  - 中断恢复机制
 
 ## 安装
 
@@ -104,6 +109,24 @@ var chatbot = new ChatbotService(new OpenAIService(), config);
 await chatbot.SendMessage("北京今天天气怎么样？");
 ```
 
+### 状态管理
+```csharp
+// 订阅状态变更事件
+chatbot.OnStateChanged += (sender, args) => {
+    Debug.Log($"状态变更: {args.OldState} -> {args.NewState}");
+    Debug.Log($"消息ID: {args.MessageId}");
+};
+
+// 获取消息状态
+var messageState = chatbot.GetMessageState(messageId);
+
+// 获取所有pending消息
+var pendingMessages = chatbot.GetPendingMessages();
+
+// 中断恢复
+await chatbot.ResumeAsync(messageId);
+```
+
 ## 示例
 
 查看Samples文件夹获取完整示例:
@@ -111,6 +134,7 @@ await chatbot.SendMessage("北京今天天气怎么样？");
 - UI集成
 - Tool Calling示例
 - 流式响应演示
+- 状态管理示例
 
 ## 错误处理
 

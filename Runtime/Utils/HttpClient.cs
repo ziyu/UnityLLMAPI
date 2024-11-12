@@ -40,7 +40,7 @@ namespace UnityLLMAPI.Utils
                 // 注册取消回调
                 cancellationToken.Register(() => 
                 {
-                    if (request != null && !request.isDone)
+                    if (request is { isDone: false })
                     {
                         LLMLogging.Log("Request cancelled by user", LogType.Log);
                         request.Abort();

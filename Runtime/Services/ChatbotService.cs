@@ -15,7 +15,7 @@ namespace UnityLLMAPI.Services
     public class ChatbotService : IChatbotService
     {
         private readonly OpenAIService service;
-        private readonly ChatSession session;
+        private ChatSession session;
         private readonly ChatbotConfig config;
 
         /// <summary>
@@ -57,10 +57,20 @@ namespace UnityLLMAPI.Services
         {
             this.service = service ?? throw new ArgumentNullException(nameof(service));
             this.config = config ?? throw new ArgumentNullException(nameof(config));
-            this.session = session ?? throw new ArgumentNullException(nameof(session));
             
             config.ValidateConfig();
 
+            SetSession(session);
+        }
+
+        public void SetSession(ChatSession session)
+        {
+            if (this.session != null)
+            {
+                ClearPending();
+            }
+
+            this.session = session ?? throw new ArgumentNullException(nameof(session));
             // 如果是新会话且有系统提示词，添加系统消息
             if (!this.session.messages.Any() && !string.IsNullOrEmpty(config.systemPrompt))
             {
@@ -158,9 +168,18 @@ namespace UnityLLMAPI.Services
                 // Get response from OpenAI
                 ChatMessage response = await GetResponse(currentMessageInfo, @params.Model ?? config.defaultModel,
                     @params.CancellationToken);
-                // 完成用户消息
-                UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Succeeded);
-                session.CompleteAllPendingMessages();
+                if (response != null)
+                {
+                    // 完成用户消息
+                    UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Succeeded);
+                    session.CompleteAllPendingMessages();
+                }
+                else
+                {
+                    UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Failed);
+                    session.CancelAllPendingMessages();
+                }
+          
                 IsPending = false;
                 return response;
             }
@@ -200,7 +219,7 @@ namespace UnityLLMAPI.Services
                         case ChatMessageState.Receiving:
                             // 发送消息
                             UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Sending);
-                            nextMessageInfo=await HandleChatCompletion(model, cancellationToken);
+                            nextMessageInfo=await HandleChatCompletion(currentMessageInfo,model, cancellationToken);
                             UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Succeeded);
                             break;
                         case ChatMessageState.ProcessingTool:
@@ -208,10 +227,9 @@ namespace UnityLLMAPI.Services
                             if (currentMessageInfo.message.tool_calls != null)
                             {
                                 UpdateMessageState(currentMessageInfo.messageId,ChatMessageState.ProcessingTool);
-                                await HandleToolCalls(currentMessageInfo.message.tool_calls, cancellationToken);
+                                nextMessageInfo=await HandleToolCalls(currentMessageInfo, cancellationToken);
                                 //执行完工具后发送执行结果
                                 UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Sending);
-                                nextMessageInfo = currentMessageInfo;
                             }
                             else
                             {
@@ -237,8 +255,9 @@ namespace UnityLLMAPI.Services
             return currentMessageInfo.message;
         }
 
-        private async Task<ChatMessageInfo> HandleChatCompletion(string model,CancellationToken cancellationToken)
+        private async Task<ChatMessageInfo> HandleChatCompletion(ChatMessageInfo pendingMessageInfo, string model,CancellationToken cancellationToken)
         {
+            if (pendingMessageInfo == null) return null;
             ChatMessage response;
             // Get response from OpenAI
             if (config.useStreaming)
@@ -260,6 +279,11 @@ namespace UnityLLMAPI.Services
                     cancellationToken
                 );
             }
+
+            if (response == null||pendingMessageInfo.IsCompleted())
+            {
+                return null;
+            }
             var responsMessageInfo = session.AddMessage(response,true);
             var state = ChatMessageState.Succeeded;
             if (response.tool_calls is { Length: > 0 })
@@ -270,16 +294,30 @@ namespace UnityLLMAPI.Services
             return responsMessageInfo;
         }
 
-        private async Task HandleToolCalls(ToolCall[] toolCalls, CancellationToken cancellationToken)
+        private async Task<ChatMessageInfo> HandleToolCalls(ChatMessageInfo pendingMessageInfo, CancellationToken cancellationToken)
         {
-            foreach (var toolCall in toolCalls)
+            if(pendingMessageInfo==null)return null;
+
+            bool CheckIfStateInvalid()
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                return !pendingMessageInfo.IsCompleted();
+            }
+
+            foreach (var toolCall in pendingMessageInfo.message.tool_calls)
+            {
+                
+                if(!CheckIfStateInvalid())break;
+                if (session.pendingMessages.Any(x => x.message.tool_call_id == toolCall.id))
+                {
+                    continue;
+                }
 
                 bool shouldExecute = true;
                 if (config.shouldExecuteTool != null)
                 {
                     shouldExecute = await config.shouldExecuteTool(toolCall);
+                    if(!CheckIfStateInvalid())break;
                 }
 
                 if (!shouldExecute)
@@ -289,21 +327,23 @@ namespace UnityLLMAPI.Services
                         toolCall.function.name,
                         config.skipToolMessage
                     );
-                    var storedSkipResponse = session.AddMessage(skipResponse,true);
-                    UpdateMessageState(storedSkipResponse.messageId, ChatMessageState.Succeeded);
+                    var skipResponseInfo = session.AddMessage(skipResponse,true);
+                    UpdateMessageState(skipResponseInfo.messageId, ChatMessageState.Succeeded);
                     continue;
                 }
 
                 try
                 {
                     string toolResult = await config.toolSet.ExecuteTool(toolCall);
+                    if(!CheckIfStateInvalid())break;
+                    
                     var toolResponse = ChatMessage.CreateToolResponse(
                         toolCall.id,
                         toolCall.function.name,
                         toolResult
                     );
-                    var storedToolResponse = session.AddMessage(toolResponse,true);
-                    UpdateMessageState(storedToolResponse.messageId, ChatMessageState.Succeeded);
+                    var toolResponseInfo = session.AddMessage(toolResponse,true);
+                    UpdateMessageState(toolResponseInfo.messageId, ChatMessageState.Succeeded);
                 }
                 catch (Exception e)
                 {
@@ -312,11 +352,12 @@ namespace UnityLLMAPI.Services
                         toolCall.function.name,
                         $"Error executing tool: {e.Message}"
                     );
-                    var storedErrorResponse = session.AddMessage(errorResponse,true);
-                    UpdateMessageState(storedErrorResponse.messageId, ChatMessageState.Failed, e.Message);
+                    var errorResponseInfo = session.AddMessage(errorResponse,true);
+                    UpdateMessageState(errorResponseInfo.messageId, ChatMessageState.Failed, e.Message);
                     throw;
                 }
             }
+            return pendingMessageInfo;
         }
 
         void OnStreamingChunk(ChatMessage chatMessage)
@@ -330,6 +371,15 @@ namespace UnityLLMAPI.Services
         public void ClearHistory(bool keepSystemMessage=true)
         {
             session.ClearHistory(keepSystemMessage);
+        }
+
+        /// <summary>
+        /// Clear Pending State
+        /// </summary>
+        public void ClearPending()
+        {
+            session.CancelAllPendingMessages();
+            IsPending = false;
         }
 
         /// <summary>

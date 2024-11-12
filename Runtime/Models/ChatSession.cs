@@ -47,11 +47,6 @@ namespace UnityLLMAPI.Models
         public List<ChatMessageInfo> pendingMessages;
 
         /// <summary>
-        /// 会话的系统提示词
-        /// </summary>
-        public string systemPrompt;
-
-        /// <summary>
         /// 会话的当前状态
         /// </summary>
         public string state;
@@ -137,9 +132,7 @@ namespace UnityLLMAPI.Models
                     pendingMessage.UpdateState(ChatMessageState.Succeeded);
             }
             pendingMessages.Clear();
-            UpdateState(ChatState.Ready);
-            isDirty = true;
-            updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            UpdateState(ChatState.Ready,true);
             return true;
         }
         
@@ -152,9 +145,7 @@ namespace UnityLLMAPI.Models
                     pendingMessage.UpdateState(ChatMessageState.Cancelled);
             }
             pendingMessages.Clear();
-            UpdateState(ChatState.Ready);
-            isDirty = true;
-            updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            UpdateState(ChatState.Ready,true);
             return true;
         }
 
@@ -250,14 +241,14 @@ namespace UnityLLMAPI.Models
                 pendingMessages.Clear();
             }
             
-            isDirty = true;
-            updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            UpdateState(ChatState.Ready);
+            UpdateState(ChatState.Ready,true);
         }
 
-        private void UpdateState(ChatState newState)
+        private void UpdateState(ChatState newState,bool dirty=false)
         {
+            isDirty = dirty;
             state = newState.ToString();
+            updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         }
 
         /// <summary>

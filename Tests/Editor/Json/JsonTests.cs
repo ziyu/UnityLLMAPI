@@ -317,6 +317,24 @@ namespace UnityLLMAPI.Editor.Tests.Json
             public int Age;
             public Dictionary<string, string> Properties;
         }
+        
+        [Test]
+        public void TestObjectInDictionary()
+        {
+            // 创建测试数据
+            var dict = new Dictionary<string, object>
+            {
+                { "success", true },
+                { "sssss", "122121" }
+            };
+
+            string json = JsonSerializer.Serialize(dict);
+            var deserializedDict = JsonDeserializer.Deserialize<Dictionary<string, object>>(json);
+
+            Assert.AreEqual(2, deserializedDict.Count);
+            Assert.AreEqual(true, deserializedDict["success"]);
+            Assert.AreEqual("122121", deserializedDict["sssss"]);
+        }
 
         [Test]
         public void TestComplexObjectInDictionary()
