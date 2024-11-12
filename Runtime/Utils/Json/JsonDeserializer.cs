@@ -6,9 +6,9 @@ namespace UnityLLMAPI.Utils.Json
 {
     public static class JsonDeserializer
     {
-        public static T Deserialize<T>(string json) where T : class, new()
+        public static T Deserialize<T>(string json)
         {
-            if (string.IsNullOrEmpty(json)) return null;
+            if (string.IsNullOrEmpty(json)) return default;
             
             var reader = new JsonReader(json);
             return (T)DeserializeValue(typeof(T), reader);
@@ -16,6 +16,11 @@ namespace UnityLLMAPI.Utils.Json
 
         private static object DeserializeValue(Type type, JsonReader reader)
         {
+            if (type == null)
+            {
+                throw new JsonException("Cannot deserialize to null type");
+            }
+
             reader.SkipWhitespace();
             
             char current = reader.Peek();
@@ -27,16 +32,27 @@ namespace UnityLLMAPI.Utils.Json
             
             switch (current)
             {
-                case '"': return reader.ReadString();
+                case '"': 
+                    if(type==typeof(string)||type==typeof(object))
+                        return reader.ReadString();
+                    break;
                 case '{':
                     if (IsDictionaryType(type))
                     {
                         return DeserializeDictionary(type, reader);
                     }
                     return DeserializeObject(type, reader);
-                case '[': return DeserializeArray(type, reader);
+                case '[': 
+                    if (IsListType(type))
+                    {
+                        return DeserializeList(type, reader);
+                    }
+                    return DeserializeArray(type, reader);
                 case 't':
-                case 'f': return reader.ReadBoolean();
+                case 'f': 
+                    if(type==typeof(bool)||type==typeof(object))
+                        return reader.ReadBoolean();
+                    break;
                 case '-':
                 case '0':
                 case '1':
@@ -52,29 +68,120 @@ namespace UnityLLMAPI.Utils.Json
                     if (type == typeof(long)) return (long)reader.ReadNumber();
                     if (type == typeof(float)) return (float)reader.ReadNumber();
                     return reader.ReadNumber();
-                default:
-                    throw new JsonException($"Unexpected character in JSON: {current}");
             }
+            throw new JsonException($"Unexpected character in JSON: {current}");
         }
 
-        private static bool IsDictionaryType(Type type)
+        private static bool IsListType(Type type)
         {
-            if (type.IsGenericType)
+            if (type == null)
             {
-                var genericType = type.GetGenericTypeDefinition();
-                return genericType == typeof(Dictionary<,>) &&
-                       type.GetGenericArguments()[0] == typeof(string);
+                return false;
+            }
+
+            try
+            {
+                if (type.IsGenericType)
+                {
+                    var genericType = type.GetGenericTypeDefinition();
+                    return genericType == typeof(List<>);
+                }
+            }
+            catch (Exception)
+            {
+                return false;
             }
             return false;
         }
 
+        private static bool IsDictionaryType(Type type)
+        {
+            if (type == null)
+            {
+                return false;
+            }
+
+            try 
+            {
+                if (type.IsGenericType)
+                {
+                    var genericType = type.GetGenericTypeDefinition();
+                    return genericType == typeof(Dictionary<,>) &&
+                           type.GetGenericArguments()[0] == typeof(string);
+                }
+            }
+            catch (Exception)
+            {
+                // 如果获取泛型类型定义失败，返回false
+                return false;
+            }
+            return false;
+        }
+
+        private static object DeserializeList(Type type, JsonReader reader)
+        {
+            if (type == null)
+            {
+                throw new JsonException("Cannot deserialize list with null type");
+            }
+
+            reader.Expect('[');
+            
+            // 获取List的元素类型
+            Type elementType = type.GetGenericArguments()[0];
+            if (elementType == null)
+            {
+                throw new JsonException($"List element type cannot be null, List Type:{type}");
+            }
+
+            // 创建List实例
+            var listType = typeof(List<>).MakeGenericType(elementType);
+            var list = Activator.CreateInstance(listType);
+            var addMethod = listType.GetMethod("Add");
+            
+            while (true)
+            {
+                reader.SkipWhitespace();
+                if (reader.Peek() == ']')
+                {
+                    reader.Read();
+                    break;
+                }
+                
+                if (reader.Peek() == ',')
+                {
+                    reader.Read();
+                    continue;
+                }
+                
+                object element = DeserializeValue(elementType, reader);
+                addMethod.Invoke(list, new[] { element });
+            }
+            
+            return list;
+        }
+
         private static object DeserializeDictionary(Type type, JsonReader reader)
         {
+            if (type == null)
+            {
+                throw new JsonException("Cannot deserialize dictionary with null type");
+            }
+
             reader.Expect('{');
             
             // 获取Dictionary的值类型参数
             Type[] genericArgs = type.GetGenericArguments();
+            if (genericArgs == null || genericArgs.Length != 2)
+            {
+                throw new JsonException("Invalid dictionary type arguments");
+            }
+
             Type valueType = genericArgs[1];
+            if (valueType == null)
+            {
+                throw new JsonException("Dictionary value type cannot be null");
+            }
             
             // 创建Dictionary实例
             var dictionaryType = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
@@ -108,6 +215,11 @@ namespace UnityLLMAPI.Utils.Json
 
         private static object DeserializeObject(Type type, JsonReader reader)
         {
+            if (type == null)
+            {
+                throw new JsonException("Cannot deserialize object with null type");
+            }
+
             reader.Expect('{');
             
             var result = Activator.CreateInstance(type);
@@ -147,6 +259,11 @@ namespace UnityLLMAPI.Utils.Json
 
         private static Dictionary<string, FieldInfo> GetFieldMap(Type type)
         {
+            if (type == null)
+            {
+                throw new JsonException("Cannot get field map for null type");
+            }
+
             var fields = new Dictionary<string, FieldInfo>();
             foreach (var field in type.GetFields())
             {
@@ -157,9 +274,19 @@ namespace UnityLLMAPI.Utils.Json
 
         private static Array DeserializeArray(Type type, JsonReader reader)
         {
+            if (type == null)
+            {
+                throw new JsonException("Cannot deserialize array with null type");
+            }
+
             reader.Expect('[');
             
             var elementType = type.GetElementType();
+            if (elementType == null)
+            {
+                throw new JsonException($"Array element type cannot be null,Array Type:{type}");
+            }
+
             var elements = new List<object>();
             
             while (true)

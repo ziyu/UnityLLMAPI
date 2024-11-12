@@ -41,44 +41,80 @@ namespace UnityLLMAPI.Utils.Json
                 position++;
         }
 
+        private string ProcessEscapeSequence()
+        {
+            char c = Read();
+            switch (c)
+            {
+                case '"': return "\"";
+                case '\\': return "\\";
+                case '/': return "/";
+                case 'b': return "\b";
+                case 'f': return "\f";
+                case 'n': return "\n";
+                case 'r': return "\r";
+                case 't': return "\t";
+                case 'u':
+                    // 读取4位十六进制数
+                    if (position + 4 > json.Length)
+                        throw new JsonException("Incomplete Unicode escape sequence");
+                    
+                    string hex = "";
+                    for (int i = 0; i < 4; i++)
+                    {
+                        char hexChar = Read();
+                        if (!IsHexDigit(hexChar))
+                            throw new JsonException($"Invalid Unicode escape sequence: \\u{hex}{hexChar}");
+                        hex += hexChar;
+                    }
+                    
+                    try
+                    {
+                        int value = Convert.ToInt32(hex, 16);
+                        return char.ConvertFromUtf32(value);
+                    }
+                    catch (Exception)
+                    {
+                        throw new JsonException($"Invalid Unicode escape value: \\u{hex}");
+                    }
+                default:
+                    throw new JsonException($"Invalid escape sequence: \\{c}");
+            }
+        }
+
+        private bool IsHexDigit(char c)
+        {
+            return (c >= '0' && c <= '9') ||
+                   (c >= 'a' && c <= 'f') ||
+                   (c >= 'A' && c <= 'F');
+        }
+
         public string ReadString()
         {
             Expect('"');
             var sb = new StringBuilder();
             
-            while (true)
+            while (position < json.Length)
             {
                 char c = Read();
-                if (c == '"') break;
+                
+                if (c == '"')
+                    return sb.ToString();
                 
                 if (c == '\\')
                 {
-                    c = Read();
-                    switch (c)
-                    {
-                        case '"': sb.Append('"'); break;
-                        case '\\': sb.Append('\\'); break;
-                        case '/': sb.Append('/'); break;
-                        case 'b': sb.Append('\b'); break;
-                        case 'f': sb.Append('\f'); break;
-                        case 'n': sb.Append('\n'); break;
-                        case 'r': sb.Append('\r'); break;
-                        case 't': sb.Append('\t'); break;
-                        case 'u':
-                            string hex = new string(new[] { Read(), Read(), Read(), Read() });
-                            sb.Append((char)Convert.ToInt32(hex, 16));
-                            break;
-                        default:
-                            throw new JsonException($"Invalid escape sequence: \\{c}");
-                    }
+                    sb.Append(ProcessEscapeSequence());
+                    continue;
                 }
-                else
-                {
-                    sb.Append(c);
-                }
+                
+                // 检查非法字符
+                if (c < 0x20)
+                    throw new JsonException($"Invalid control character in string: {(int)c}");
+                
+                sb.Append(c);
             }
             
-            return sb.ToString();
+            throw new JsonException("Unterminated string");
         }
 
         public bool ReadBoolean()
@@ -117,6 +153,9 @@ namespace UnityLLMAPI.Utils.Json
             }
             
             // Read digits before decimal point
+            if (!char.IsDigit(Peek()))
+                throw new JsonException("Invalid number format: digit expected");
+                
             while (position < json.Length && char.IsDigit(Peek()))
             {
                 sb.Append(Read());
@@ -126,6 +165,9 @@ namespace UnityLLMAPI.Utils.Json
             if (position < json.Length && Peek() == '.')
             {
                 sb.Append(Read());
+                if (!char.IsDigit(Peek()))
+                    throw new JsonException("Invalid number format: digit expected after decimal point");
+                    
                 while (position < json.Length && char.IsDigit(Peek()))
                 {
                     sb.Append(Read());
@@ -140,13 +182,19 @@ namespace UnityLLMAPI.Utils.Json
                 {
                     sb.Append(Read());
                 }
+                if (!char.IsDigit(Peek()))
+                    throw new JsonException("Invalid number format: digit expected in exponent");
+                    
                 while (position < json.Length && char.IsDigit(Peek()))
                 {
                     sb.Append(Read());
                 }
             }
             
-            return double.Parse(sb.ToString());
+            if (double.TryParse(sb.ToString(), out double result))
+                return result;
+                
+            throw new JsonException($"Invalid number format: {sb}");
         }
 
         public void SkipValue()
@@ -181,38 +229,58 @@ namespace UnityLLMAPI.Utils.Json
         public void SkipObject()
         {
             Expect('{');
-            int depth = 1;
+            SkipWhitespace();
             
-            while (depth > 0)
+            if (Peek() == '}')
             {
-                char c = Read();
-                if (c == '{') depth++;
-                else if (c == '}') depth--;
-                else if (c == '"') SkipString();
+                Read();
+                return;
+            }
+            
+            while (true)
+            {
+                SkipWhitespace();
+                ReadString(); // Skip key
+                SkipWhitespace();
+                Expect(':');
+                SkipWhitespace();
+                SkipValue();
+                SkipWhitespace();
+                
+                if (Peek() == '}')
+                {
+                    Read();
+                    break;
+                }
+                
+                Expect(',');
             }
         }
 
         public void SkipArray()
         {
             Expect('[');
-            int depth = 1;
+            SkipWhitespace();
             
-            while (depth > 0)
+            if (Peek() == ']')
             {
-                char c = Read();
-                if (c == '[') depth++;
-                else if (c == ']') depth--;
-                else if (c == '"') SkipString();
+                Read();
+                return;
             }
-        }
-
-        private void SkipString()
-        {
+            
             while (true)
             {
-                char c = Read();
-                if (c == '\\') Read();
-                else if (c == '"') break;
+                SkipWhitespace();
+                SkipValue();
+                SkipWhitespace();
+                
+                if (Peek() == ']')
+                {
+                    Read();
+                    break;
+                }
+                
+                Expect(',');
             }
         }
     }
