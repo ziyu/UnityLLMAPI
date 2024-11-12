@@ -31,8 +31,7 @@ namespace UnityLLMAPI.Services
             {
                 throw new LLMConfigurationException("OpenAIConfig not found. Please create and configure it in the Resources folder.");
             }
-            config.ValidateConfig();
-            LLMLogging.EnableLogging(config.enableLogging);
+            InitByConfig();
         }
 
         /// <summary>
@@ -42,8 +41,14 @@ namespace UnityLLMAPI.Services
         public OpenAIService(OpenAIConfig customConfig)
         {
             config = customConfig ?? throw new LLMConfigurationException("Config cannot be null");
+            InitByConfig();
+        }
+
+        void InitByConfig()
+        {
             config.ValidateConfig();
             LLMLogging.EnableLogging(config.enableLogging);
+            LLMLogging.SetLogLevel(config.minimumLogLevel);
         }
 
         /// <summary>
@@ -149,10 +154,10 @@ namespace UnityLLMAPI.Services
                 string jsonRequest = JsonConverter.SerializeObject(request);
                 string url = $"{config.apiBaseUrl}{API_ENDPOINT}";
                 
-                LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
-                LLMLogging.Log($"Sending request to OpenAI API", LogType.Log);
+                LLMLogging.Log($"Send Request: {jsonRequest}", LogType.Log);
                 
                 string jsonResponse = await HttpClient.PostJsonAsync(url, jsonRequest, config.apiKey, cancellationToken);
+                LLMLogging.Log($"Receive Response: {jsonResponse}", LogType.Log);
                 return HandleResponse(jsonResponse);
             }
             catch (OperationCanceledException)

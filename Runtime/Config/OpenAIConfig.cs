@@ -33,12 +33,6 @@ namespace UnityLLMAPI.Config
         public bool enableLogging = true;
         public LogType minimumLogLevel = LogType.Error;
 
-        private void OnEnable()
-        {
-            // Update logging configuration when the asset is loaded
-            LLMLogging.EnableLogging(enableLogging);
-        }
-
         public void ValidateConfig()
         {
             if (string.IsNullOrEmpty(apiKey))
