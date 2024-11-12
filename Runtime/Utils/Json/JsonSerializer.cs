@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 
 namespace UnityLLMAPI.Utils.Json
 {
@@ -148,7 +149,7 @@ namespace UnityLLMAPI.Utils.Json
             sb.Append('{');
             bool first = true;
 
-            var fields = obj.GetType().GetFields();
+            var fields = obj.GetType().GetFields(BindingFlags.Instance|BindingFlags.Public);
             foreach (var field in fields)
             {
                 var value = field.GetValue(obj);

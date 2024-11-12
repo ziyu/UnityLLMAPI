@@ -8,6 +8,7 @@ using UnityLLMAPI.Services;
 using UnityLLMAPI.Models;
 using UnityLLMAPI.Utils;
 using UnityLLMAPI.Config;
+using UnityLLMAPI.Interfaces;
 
 namespace UnityLLMAPI.Examples
 {
@@ -38,10 +39,15 @@ namespace UnityLLMAPI.Examples
         private TaskCompletionSource<bool> toolConfirmationTask = null;
         private Rect toolConfirmationRect = new Rect(420, 10, 300, 200);
         
+        // Session management
+        private string sessionSavePath;
+        private bool isResumingSession = false;
+        
         // GUI Styles
         private GUIStyle boldLabelStyle;
         private GUIStyle wordWrappedLabelStyle;
         private GUIStyle errorStyle;
+        private GUIStyle statusStyle;
 
         private void Start()
         {
@@ -58,6 +64,24 @@ namespace UnityLLMAPI.Examples
                 // Initialize tools
                 InitializeTools();
 
+                // Set session save path
+                sessionSavePath = System.IO.Path.Combine(Application.persistentDataPath, "chat_session.json");
+
+                // Try to load existing session
+                ChatSession savedSession = null;
+                if (System.IO.File.Exists(sessionSavePath))
+                {
+                    try
+                    {
+                        string json = System.IO.File.ReadAllText(sessionSavePath);
+                        savedSession = ChatSession.FromJson(json);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"Failed to load saved session: {e.Message}");
+                    }
+                }
+
                 // Initialize chatbot service
                 var chatbotConfig = new ChatbotConfig
                 {
@@ -69,7 +93,15 @@ namespace UnityLLMAPI.Examples
                     skipToolMessage = "Tool execution skipped by user"
                 };
 
-                chatbotService = new ChatbotService(openAIService, chatbotConfig);
+                chatbotService = new ChatbotService(openAIService, chatbotConfig, savedSession ?? new ChatSession());
+                chatbotService.StateChanged += OnChatStateChanged;
+
+                // Try to resume interrupted session
+                if (chatbotService.IsInterrupted)
+                {
+                    isResumingSession = true;
+                    _ = ResumeSession();
+                }
             }
             catch (LLMException e)
             {
@@ -86,6 +118,20 @@ namespace UnityLLMAPI.Examples
             // 确保在销毁时取消所有进行中的操作
             cancellationTokenSource?.Cancel();
             cancellationTokenSource?.Dispose();
+
+            // 保存会话状态
+            if (chatbotService != null)
+            {
+                try
+                {
+                    string json = chatbotService.Session.ToJson();
+                    System.IO.File.WriteAllText(sessionSavePath, json);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"Failed to save session: {e.Message}");
+                }
+            }
         }
 
         private void InitializeTools()
@@ -178,11 +224,32 @@ namespace UnityLLMAPI.Examples
                 wordWrap = true,
                 normal = { textColor = Color.red }
             };
+
+            statusStyle = new GUIStyle(GUI.skin.label)
+            {
+                wordWrap = true,
+                normal = { textColor = Color.yellow }
+            };
         }
         
         private void DrawChatWindow(int windowID)
         {
             GUILayout.BeginVertical();
+
+            // Status display
+            if (chatbotService.IsInterrupted)
+            {
+                GUILayout.Label($"Session interrupted in state: {chatbotService.CurrentState}", statusStyle);
+                if (!isResumingSession && GUILayout.Button("Resume Session"))
+                {
+                    isResumingSession = true;
+                    _ = ResumeSession();
+                }
+            }
+            else
+            {
+                GUILayout.Label($"Current state: {chatbotService.CurrentState}");
+            }
 
             // Error message display
             if (!string.IsNullOrEmpty(errorMessage))
@@ -194,6 +261,14 @@ namespace UnityLLMAPI.Examples
                 }
                 GUILayout.Space(10);
             }
+
+            // Clear chat button
+            GUI.enabled = chatbotService.CurrentState == ChatState.Ready;
+            if (GUILayout.Button("Clear Chat"))
+            {
+                chatbotService.Session.ClearHistory(keepSystemMessage: true, clearPending: true);
+            }
+            GUI.enabled = true;
 
             // Chat history area
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(400));
@@ -220,7 +295,7 @@ namespace UnityLLMAPI.Examples
             }
 
             // Show current streaming message if any
-            if (chatbotService.IsSending && useStreaming && currentStreamingMessage != null)
+            if (useStreaming && currentStreamingMessage != null)
             {
                 GUILayout.Label("Assistant:", boldLabelStyle);
                 GUILayout.TextArea(currentStreamingMessage.ToString(), wordWrappedLabelStyle);
@@ -235,7 +310,7 @@ namespace UnityLLMAPI.Examples
             GUILayout.BeginHorizontal();
             
             // Input field (只在非处理状态时可用)
-            GUI.enabled = !chatbotService.IsSending;
+            GUI.enabled = chatbotService.CurrentState == ChatState.Ready;
             userInput = GUILayout.TextField(userInput, GUILayout.ExpandWidth(true));
             
             // Send button (只在非处理状态时可用)
@@ -246,7 +321,7 @@ namespace UnityLLMAPI.Examples
             GUI.enabled = true;
 
             // Cancel button (只在处理状态时可用)
-            GUI.enabled = chatbotService.IsSending;
+            GUI.enabled = chatbotService.CurrentState != ChatState.Ready;
             if (GUILayout.Button("Cancel", GUILayout.Width(60)))
             {
                 CancelOperation();
@@ -256,9 +331,9 @@ namespace UnityLLMAPI.Examples
             GUILayout.EndHorizontal();
 
             // Processing indicator
-            if (chatbotService.IsSending)
+            if (chatbotService.CurrentState != ChatState.Ready)
             {
-                GUILayout.Label("Processing...");
+                GUILayout.Label($"Status: {chatbotService.CurrentState}");
             }
 
             GUILayout.EndVertical();
@@ -312,19 +387,53 @@ namespace UnityLLMAPI.Examples
 
             LLMLogging.Log(message, LogType.Error);
             errorMessage = message;
+            isResumingSession = false;
         }
 
         private void CancelOperation()
         {
-            if (chatbotService.IsSending && cancellationTokenSource != null)
+            if (chatbotService.CurrentState != ChatState.Ready && cancellationTokenSource != null)
             {
                 cancellationTokenSource.Cancel();
+                isResumingSession = false;
+            }
+        }
+
+        private async Task ResumeSession()
+        {
+            cancellationTokenSource?.Dispose();
+            cancellationTokenSource = new CancellationTokenSource();
+
+            try
+            {
+                var message = await chatbotService.ResumeSession(new ChatParams()
+                {
+                    CancellationToken = cancellationTokenSource.Token
+                });
+                if (message!=null)
+                {
+                    Debug.Log("Successfully resumed session");
+                }
+                else
+                {
+                    Debug.LogWarning("Failed to resume session");
+                }
+            }
+            catch (Exception e)
+            {
+                HandleError(e);
+            }
+            finally
+            {
+                isResumingSession = false;
+                cancellationTokenSource?.Dispose();
+                cancellationTokenSource = null;
             }
         }
 
         private async void SendMessage()
         {
-            if (chatbotService.IsSending || string.IsNullOrEmpty(userInput))
+            if (chatbotService.CurrentState != ChatState.Ready || string.IsNullOrEmpty(userInput))
                 return;
 
             // 创建新的CancellationTokenSource
@@ -344,7 +453,10 @@ namespace UnityLLMAPI.Examples
                 }
 
                 // Send message with cancellation token
-                await chatbotService.SendMessage(userMessage, null, cancellationTokenSource.Token);
+                await chatbotService.SendMessage(userMessage, new ChatParams()
+                {
+                    CancellationToken = cancellationTokenSource.Token
+                });
 
                 // Clear streaming message
                 currentStreamingMessage = null;
@@ -364,12 +476,28 @@ namespace UnityLLMAPI.Examples
             }
         }
 
-        private void OnStreamingChunk(ChatMessage message, bool isDone)
+        private void OnStreamingChunk(ChatMessage message)
         {
             if (currentStreamingMessage != null)
             {
                 currentStreamingMessage.Clear();
                 currentStreamingMessage.Append(message.content);
+            }
+        }
+
+        private void OnChatStateChanged(object sender, ChatStateChangedEventArgs e)
+        {
+            if (e.MessageId != null)
+            {
+                Debug.Log($"Session:{e.SessionId},Message {e.MessageId} state changed: {e.OldMessageState} -> {e.NewMessageState}");
+                if (e.Error != null)
+                {
+                    Debug.LogError($"Error: {e.Error}");
+                }
+            }
+            else
+            {
+                Debug.Log($"Session state changed: {e.SessionId}");
             }
         }
 

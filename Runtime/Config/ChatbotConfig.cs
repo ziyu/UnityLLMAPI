@@ -29,7 +29,7 @@ namespace UnityLLMAPI.Config
         /// <summary>
         /// Callback for streaming chunks (required if useStreaming is true)
         /// </summary>
-        public Action<ChatMessage,bool> onStreamingChunk;
+        public Action<ChatMessage> onStreamingChunk;
 
         /// <summary>
         /// Async callback to decide whether to execute a tool call

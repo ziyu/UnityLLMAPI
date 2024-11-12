@@ -128,15 +128,7 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Send a chat completion request to OpenAI
         /// </summary>
-        public async Task<ChatMessage> ChatCompletion(List<ChatMessage> messages, string model, CancellationToken cancellationToken = default)
-        {
-            return await SendChatRequest(messages, model, null, cancellationToken);
-        }
-
-        /// <summary>
-        /// Send a chat completion request with tools to OpenAI
-        /// </summary>
-        public async Task<ChatMessage> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, string model = null, CancellationToken cancellationToken = default)
+        public async Task<ChatMessage> ChatCompletion(List<ChatMessage> messages, string model = null, List<Tool> tools=null, CancellationToken cancellationToken = default)
         {
             return await SendChatRequest(messages, model, tools, cancellationToken);
         }
@@ -173,25 +165,17 @@ namespace UnityLLMAPI.Services
         }
 
         /// <summary>
-        /// Send a streaming chat completion request to OpenAI
-        /// </summary>
-        public async Task ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, CancellationToken cancellationToken = default)
-        {
-            await SendStreamingRequest(messages, onChunk, model, null, cancellationToken);
-        }
-
-        /// <summary>
         /// Send a streaming chat completion request with tools to OpenAI
         /// </summary>
-        public async Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Action<ChatMessage,bool> onChunk, string model = null, CancellationToken cancellationToken = default)
+        public async Task<ChatMessage> ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage> onChunk, string model = null, List<Tool> tools=null, CancellationToken cancellationToken = default)
         {
-            await SendStreamingRequest(messages, onChunk, model, tools, cancellationToken);
+            return await SendStreamingRequest(messages, onChunk, model, tools, cancellationToken);
         }
 
         /// <summary>
         /// Core method to send streaming requests
         /// </summary>
-        private async Task SendStreamingRequest(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, List<Tool> tools = null, CancellationToken cancellationToken = default)
+        private async Task<ChatMessage> SendStreamingRequest(List<ChatMessage> messages, Action<ChatMessage> onChunk, string model = null, List<Tool> tools = null, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -224,7 +208,7 @@ namespace UnityLLMAPI.Services
                         {
                             currentMessage.tool_calls = MergeToolCallChunks(currentToolCallChunks);
                         }
-                        onChunk(currentMessage, true);
+                        onChunk(currentMessage);
                         return;
                     }
 
@@ -244,7 +228,7 @@ namespace UnityLLMAPI.Services
                             if (!string.IsNullOrEmpty(delta?.content))
                             {
                                 currentMessage.content += delta.content;
-                                onChunk(currentMessage, false);
+                                onChunk(currentMessage);
                             }
                             if (delta?.tool_calls != null)
                             {
@@ -259,6 +243,7 @@ namespace UnityLLMAPI.Services
                         throw new LLMResponseException(errorMessage, jsonData);
                     }
                 }, cancellationToken);
+                return currentMessage;
             }
             catch (OperationCanceledException)
             {
@@ -329,7 +314,7 @@ namespace UnityLLMAPI.Services
                 new ChatMessage("user", prompt)
             };
             
-            var response = await ChatCompletion(messages, model, cancellationToken);
+            var response = await ChatCompletion(messages, model, cancellationToken:cancellationToken);
             return response.content;
         }
 

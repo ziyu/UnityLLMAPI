@@ -11,37 +11,19 @@ namespace UnityLLMAPI.Interfaces
     /// </summary>
     public interface ILLMService
     {
+
         /// <summary>
         /// Send a chat completion request to the language model
         /// </summary>
         /// <param name="messages">List of chat messages</param>
-        /// <param name="model">Model name to use</param>
-        /// <param name="cancellationToken">Token to cancel the operation</param>
-        /// <returns>Response message from the language model</returns>
-        Task<ChatMessage> ChatCompletion(List<ChatMessage> messages, string model, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Send a chat completion request with tools to the language model
-        /// </summary>
-        /// <param name="messages">List of chat messages</param>
         /// <param name="tools">List of available tools</param>
         /// <param name="model">Model name to use</param>
         /// <param name="cancellationToken">Token to cancel the operation</param>
         /// <returns>Response message from the language model</returns>
-        Task<ChatMessage> ChatCompletionWithTools(List<ChatMessage> messages, List<Tool> tools, string model = null, CancellationToken cancellationToken = default);
-
+        Task<ChatMessage> ChatCompletion(List<ChatMessage> messages,  string model = null,List<Tool> tools=null, CancellationToken cancellationToken = default);
+        
         /// <summary>
-        /// Send a streaming chat completion request to the language model
-        /// </summary>
-        /// <param name="messages">List of chat messages</param>
-        /// <param name="onChunk">Callback for receiving message chunks</param>
-        /// <param name="model">Model name to use</param>
-        /// <param name="cancellationToken">Token to cancel the operation</param>
-        /// <returns>Task that completes when the stream ends</returns>
-        Task ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage,bool> onChunk, string model = null, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Send a streaming chat completion request with tools to the language model
+        /// Send a streaming chat completion request  to the language model
         /// </summary>
         /// <param name="messages">List of chat messages</param>
         /// <param name="tools">List of available tools</param>
@@ -49,7 +31,7 @@ namespace UnityLLMAPI.Interfaces
         /// <param name="model">Model name to use</param>
         /// <param name="cancellationToken">Token to cancel the operation</param>
         /// <returns>Task that completes when the stream ends</returns>
-        Task ChatCompletionStreamingWithTools(List<ChatMessage> messages, List<Tool> tools, Action<ChatMessage,bool> onChunk, string model = null, CancellationToken cancellationToken = default);
+        Task<ChatMessage> ChatCompletionStreaming(List<ChatMessage> messages, Action<ChatMessage> onChunk, string model = null,List<Tool> tools=null, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Send a completion request to the language model
