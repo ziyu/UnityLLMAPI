@@ -120,6 +120,7 @@ namespace UnityLLMAPI.Utils
                 request.SetRequestHeader("Content-Type", "application/json");
                 request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
                 request.SetRequestHeader("Accept", "text/event-stream");
+                request.SetRequestHeader("Cache-Control", "no-cache");
 
                 TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
 
@@ -262,11 +263,13 @@ namespace UnityLLMAPI.Utils
     public class StreamingDownloadHandler : DownloadHandlerScript
     {
         private readonly Action<string> onData;
-        private StringBuilder buffer = new StringBuilder();
+        private readonly StringBuilder buffer;
+        private string lastLine = string.Empty;
 
         public StreamingDownloadHandler(Action<string> onData) : base()
         {
             this.onData = onData;
+            this.buffer = new StringBuilder();
         }
 
         protected override bool ReceiveData(byte[] data, int dataLength)
@@ -278,18 +281,25 @@ namespace UnityLLMAPI.Utils
                 string chunk = Encoding.UTF8.GetString(data, 0, dataLength);
                 buffer.Append(chunk);
 
-                // Process complete lines
+                // 处理完整行
                 int newlineIndex;
                 while ((newlineIndex = buffer.ToString().IndexOf("\n")) != -1)
                 {
                     string line = buffer.ToString(0, newlineIndex).Trim();
                     buffer.Remove(0, newlineIndex + 1);
                     
-                    // Pass raw line to callback
                     if (!string.IsNullOrEmpty(line))
                     {
-                        LLMLogging.Log($"Received streaming data: {line}", LogType.Log);
-                        onData?.Invoke(line);
+                        lastLine = line;
+                        try
+                        {
+                            LLMLogging.Log($"Received streaming data: {line}", LogType.Log);
+                            onData?.Invoke(line);
+                        }
+                        catch (Exception e)
+                        {
+                            LLMLogging.Log($"Error in data callback: {e.Message}", LogType.Error);
+                        }
                     }
                 }
 
@@ -299,6 +309,40 @@ namespace UnityLLMAPI.Utils
             {
                 LLMLogging.Log($"Error in ReceiveData: {e.Message}", LogType.Error);
                 return false;
+            }
+        }
+
+        protected override byte[] GetData()
+        {
+            // 返回最后一行数据的字节数组
+            return string.IsNullOrEmpty(lastLine) ? new byte[0] : Encoding.UTF8.GetBytes(lastLine);
+        }
+
+        protected override string GetText()
+        {
+            // 返回最后一行数据
+            return lastLine;
+        }
+
+        protected override void CompleteContent()
+        {
+            try
+            {
+                // 处理剩余的buffer数据
+                string remainingData = buffer.ToString().Trim();
+                if (!string.IsNullOrEmpty(remainingData))
+                {
+                    lastLine = remainingData;
+                    onData?.Invoke(remainingData);
+                }
+            }
+            catch (Exception e)
+            {
+                LLMLogging.Log($"Error in CompleteContent: {e.Message}", LogType.Error);
+            }
+            finally
+            {
+                buffer.Clear();
             }
         }
     }

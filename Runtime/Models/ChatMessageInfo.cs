@@ -84,9 +84,14 @@ namespace UnityLLMAPI.Models
         public bool IsCompleted()
         {
             var currentState = GetState();
-            return currentState == ChatMessageState.Succeeded || 
-                   currentState == ChatMessageState.Failed || 
-                   currentState == ChatMessageState.Cancelled;
+            return IsCompleteState(currentState);
+        }
+
+        public static bool IsCompleteState(ChatMessageState state)
+        {
+            return state == ChatMessageState.Succeeded || 
+                   state == ChatMessageState.Failed || 
+                   state == ChatMessageState.Cancelled;
         }
     }
 }

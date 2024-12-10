@@ -59,6 +59,7 @@ namespace UnityLLMAPI.Models
         // 缓存的消息列表
         private List<ChatMessage> cachedCompletedMessages;
         private List<ChatMessage> cachedAllMessages;
+        private List<ChatMessageInfo> cachedAllMessageInfos;
         private bool isDirty = true;
 
         /// <summary>
@@ -89,6 +90,7 @@ namespace UnityLLMAPI.Models
             state = ChatState.Ready.ToString();
             cachedCompletedMessages = new List<ChatMessage>();
             cachedAllMessages = new List<ChatMessage>();
+            cachedAllMessageInfos = new();
         }
 
         /// <summary>
@@ -122,32 +124,38 @@ namespace UnityLLMAPI.Models
         /// <summary>
         /// 将pending消息移动到已完成消息列表
         /// </summary>
-        internal bool CompleteAllPendingMessages()
+        /// <param name="state"></param>
+        internal bool CompleteAllPendingMessages(ChatMessageState state=ChatMessageState.Succeeded)
         {
+            if (!ChatMessageInfo.IsCompleteState(state))
+            {
+                throw new Exception("Must pass completed state.");
+            }
+
             if (pendingMessages.Count == 0) return false;
             foreach (var pendingMessage in pendingMessages)
             {
                 messages.Add(pendingMessage);
                 if(!pendingMessage.IsCompleted())
-                    pendingMessage.UpdateState(ChatMessageState.Succeeded);
+                    pendingMessage.UpdateState(state);
             }
             pendingMessages.Clear();
             UpdateState(ChatState.Ready,true);
             return true;
         }
         
-        internal bool CancelAllPendingMessages()
-        {
-            if (pendingMessages.Count == 0) return false;
-            foreach (var pendingMessage in pendingMessages)
-            {
-                if(!pendingMessage.IsCompleted())
-                    pendingMessage.UpdateState(ChatMessageState.Cancelled);
-            }
-            pendingMessages.Clear();
-            UpdateState(ChatState.Ready,true);
-            return true;
-        }
+        // internal bool CancelAllPendingMessages()
+        // {
+        //     if (pendingMessages.Count == 0) return false;
+        //     foreach (var pendingMessage in pendingMessages)
+        //     {
+        //         if(!pendingMessage.IsCompleted())
+        //             pendingMessage.UpdateState(ChatMessageState.Cancelled);
+        //     }
+        //     pendingMessages.Clear();
+        //     UpdateState(ChatState.Ready,true);
+        //     return true;
+        // }
 
         /// <summary>
         /// 更新消息状态
@@ -188,7 +196,19 @@ namespace UnityLLMAPI.Models
             }
             return includePending ? cachedAllMessages : cachedCompletedMessages;
         }
-
+        
+        /// <summary>
+        /// 获取所有存储的消息（包括pending消息）
+        /// </summary>
+        public IReadOnlyList<ChatMessageInfo> GetAllMessageInfos()
+        {
+            if (isDirty)
+            {
+                UpdateCachedMessages();
+            }
+            return cachedAllMessageInfos;
+        }
+        
         private void UpdateCachedMessages()
         {
             // 更新已完成消息缓存
@@ -199,21 +219,12 @@ namespace UnityLLMAPI.Models
             cachedAllMessages.Clear();
             cachedAllMessages.AddRange(cachedCompletedMessages);
             cachedAllMessages.AddRange(pendingMessages.Select(m => m.message));
+            
+            cachedAllMessageInfos.Clear();
+            cachedAllMessageInfos.AddRange(messages);
+            cachedAllMessageInfos.AddRange(pendingMessages);
 
             isDirty = false;
-        }
-
-        /// <summary>
-        /// 获取所有存储的消息（包括pending消息）
-        /// </summary>
-        public IReadOnlyList<ChatMessageInfo> GetAllGetMessageInfos(bool includePending = true)
-        {
-            var allMessages = new List<ChatMessageInfo>(messages);
-            if (includePending)
-            {
-                allMessages.AddRange(pendingMessages);
-            }
-            return allMessages;
         }
 
         /// <summary>
@@ -242,6 +253,53 @@ namespace UnityLLMAPI.Models
             }
             
             UpdateState(ChatState.Ready,true);
+        }
+
+        /// <summary>
+        /// 删除指定的消息
+        /// </summary>
+        /// <param name="messageId">要删除的消息ID</param>
+        /// <param name="keepSystemMessage">是否保留系统消息，如果要删除的是系统消息且此参数为true，则不会删除</param>
+        /// <returns>是否成功删除消息</returns>
+        internal bool DeleteMessage(string messageId, bool keepSystemMessage = true)
+        {
+            if (State == ChatState.Pending) return false;
+            
+            // 获取要删除的消息
+            var messageToDelete = GetMessageInfo(messageId);
+            if (messageToDelete == null)
+            {
+                return false;
+            }
+
+            // 如果是系统消息且需要保留，则不删除
+            if (keepSystemMessage && messageToDelete.message.role == "system" && 
+                messages.Count > 0 && messages[0].messageId == messageId)
+            {
+                return false;
+            }
+
+            // 如果消息包含tool calls，需要同时删除对应的tool result消息
+            if (messageToDelete.message.tool_calls is { Length: > 0 })
+            {
+                var toolCallIds = messageToDelete.message.tool_calls.Select(tc => tc.id).ToList();
+                messages.RemoveAll(m => m.message.tool_call_id != null && toolCallIds.Contains(m.message.tool_call_id));
+            }
+
+            // 从消息列表中删除
+            bool removed = messages.Remove(messageToDelete);
+            if (!removed)
+            {
+                pendingMessages.Remove(messageToDelete);
+            }
+
+            if (removed)
+            {
+                isDirty = true;
+                updatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            }
+
+            return removed;
         }
 
         private void UpdateState(ChatState newState,bool dirty=false)

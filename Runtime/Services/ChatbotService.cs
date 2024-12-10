@@ -126,9 +126,9 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// 获取所有pending状态的消息
         /// </summary>
-        public IReadOnlyList<ChatMessageInfo> GetPendingMessages()
+        public IReadOnlyList<ChatMessageInfo> GetAllMessageInfos()
         {
-            return session.pendingMessages.AsReadOnly();
+            return session.GetAllMessageInfos();
         }
 
         /// <summary>
@@ -177,7 +177,7 @@ namespace UnityLLMAPI.Services
                 else
                 {
                     UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Failed);
-                    session.CancelAllPendingMessages();
+                    session.CompleteAllPendingMessages(ChatMessageState.Cancelled);
                 }
           
                 IsPending = false;
@@ -189,11 +189,11 @@ namespace UnityLLMAPI.Services
                 UpdateMessageState(currentMessageInfo.messageId, ChatMessageState.Failed, e.Message);
                 if (e is OperationCanceledException or TaskCanceledException)
                 {
-                    session.CancelAllPendingMessages();
+                    session.CompleteAllPendingMessages(ChatMessageState.Cancelled);
                 }
                 else
                 {
-                    session.CompleteAllPendingMessages();
+                    session.CompleteAllPendingMessages(ChatMessageState.Failed);
                 }
 
                 throw;
@@ -378,8 +378,45 @@ namespace UnityLLMAPI.Services
         /// </summary>
         public void ClearPending()
         {
-            session.CancelAllPendingMessages();
+            session.CompleteAllPendingMessages(ChatMessageState.Cancelled);
             IsPending = false;
+        }
+
+        /// <summary>
+        /// 删除指定的消息
+        /// </summary>
+        /// <param name="messageId">要删除的消息ID</param>
+        /// <param name="keepSystemMessage">是否保留系统消息，如果要删除的是系统消息且此参数为true，则不会删除</param>
+        /// <param name="clearPending"></param>
+        /// <returns>是否成功删除消息</returns>
+        public bool DeleteMessage(string messageId, bool keepSystemMessage = true,bool clearPending=true)
+        {
+            if (string.IsNullOrEmpty(messageId))
+                throw new ArgumentException("Message ID cannot be empty", nameof(messageId));
+
+            if (IsPending)
+                throw new InvalidOperationException("Cannot delete messages while processing a request");
+
+            if (clearPending)
+            {
+                session.CompleteAllPendingMessages(ChatMessageState.Cancelled);
+            }
+
+            var oldState = GetMessageState(messageId);
+            bool deleted = session.DeleteMessage(messageId, keepSystemMessage);
+
+            if (deleted)
+            {
+                OnStateChanged(new ChatStateChangedEventArgs(
+                    session.sessionId,
+                    messageId,
+                    ChatMessageState.Cancelled,
+                    oldState,
+                    null
+                ));
+            }
+
+            return deleted;
         }
 
         /// <summary>

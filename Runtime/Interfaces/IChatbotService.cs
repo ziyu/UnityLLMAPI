@@ -48,7 +48,7 @@ namespace UnityLLMAPI.Interfaces
         /// 获取所有pending状态的消息
         /// </summary>
         /// <returns>pending状态的消息列表</returns>
-        IReadOnlyList<ChatMessageInfo> GetPendingMessages();
+        IReadOnlyList<ChatMessageInfo> GetAllMessageInfos();
 
         /// <summary>
         /// Create a system message with the given prompt
@@ -76,7 +76,6 @@ namespace UnityLLMAPI.Interfaces
         /// <returns>Assistant's response message</returns>
         Task<ChatMessage> SendMessage(string message, ChatParams @params=default);
 
-
         /// <summary>
         /// 尝试恢复中断的会话
         /// </summary>
@@ -93,6 +92,15 @@ namespace UnityLLMAPI.Interfaces
         /// clear pending chat
         /// </summary>
         void ClearPending();
+
+        /// <summary>
+        /// 删除指定的消息
+        /// </summary>
+        /// <param name="messageId">要删除的消息ID</param>
+        /// <param name="keepSystemMessage">是否保留系统消息，如果要删除的是系统消息且此参数为true，则不会删除</param>
+        /// <param name="clearPending"></param>
+        /// <returns>是否成功删除消息</returns>
+        bool DeleteMessage(string messageId, bool keepSystemMessage = true, bool clearPending = true);
     }
 
     public struct ChatParams
