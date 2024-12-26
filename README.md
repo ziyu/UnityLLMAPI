@@ -23,7 +23,7 @@
 1. 打开Unity Package Manager
 2. 点击左上角的"+"按钮
 3. 选择"Add package from git URL"
-4. 输入: `https://github.com/yourusername/UnityLLMAPI.git`
+4. 输入: `https://github.com/ziyu/UnityLLMAPI.git`
 
 ## 配置
 
