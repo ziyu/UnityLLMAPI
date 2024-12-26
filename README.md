@@ -1,166 +1,168 @@
 # Unity LLM API
 
-一个用于在Unity中集成OpenAI等大语言模型API的插件。提供了简洁的API设计、完善的错误处理和灵活的配置管理。
+[中文文档](README_CN.md)
 
-## 特性
+A Unity plugin for integrating large language model APIs like OpenAI. Provides clean API design, comprehensive error handling, and flexible configuration management.
 
-- 支持OpenAI Chat Completion API
-- Tool Calling功能支持
-- 流式响应支持
-- 异步操作
-- 完善的错误处理
-- 可配置的API参数
-- 对话历史管理
-- 自定义JSON序列化
-- 状态管理系统
-  - 实时状态追踪
-  - 状态变更事件通知
-  - 会话级别状态同步
-  - 中断恢复机制
+## Features
 
-## 安装
+- OpenAI Chat Completion API support
+- Tool Calling functionality
+- Streaming response support
+- Asynchronous operations
+- Comprehensive error handling
+- Configurable API parameters
+- Conversation history management
+- Custom JSON serialization
+- State management system
+  - Real-time state tracking
+  - State change event notifications
+  - Session-level state synchronization
+  - Interruption recovery mechanism
 
-1. 打开Unity Package Manager
-2. 点击左上角的"+"按钮
-3. 选择"Add package from git URL"
-4. 输入: `https://github.com/ziyu/UnityLLMAPI.git`
+## Installation
 
-## 配置
+1. Open Unity Package Manager
+2. Click the "+" button in the top-left corner
+3. Select "Add package from git URL"
+4. Enter: `https://github.com/ziyu/UnityLLMAPI.git`
 
-1. 创建OpenAI配置资产:
-   - 在Project窗口中右键
-   - 选择 Create > UnityLLMAPI > OpenAI Configuration
-   - 将其放在Resources文件夹中
-2. 配置你的OpenAI API密钥
-3. (可选) 调整其他设置:
-   - 默认模型
-   - 温度
-   - 最大token数
-   - 日志级别
+## Configuration
 
-## 基础用法
+1. Create OpenAI configuration asset:
+   - Right-click in the Project window
+   - Select Create > UnityLLMAPI > OpenAI Configuration
+   - Place it in the Resources folder
+2. Configure your OpenAI API key
+3. (Optional) Adjust other settings:
+   - Default model
+   - Temperature
+   - Maximum tokens
+   - Log level
 
-### 简单对话
+## Basic Usage
+
+### Simple Conversation
 ```csharp
-// 创建服务实例
+// Create service instance
 var openAIService = new OpenAIService();
 
-// 创建消息列表
+// Create message list
 var messages = new List<ChatMessage>();
-messages.Add(OpenAIService.CreateSystemMessage("你是一个有帮助的助手。"));
-messages.Add(OpenAIService.CreateUserMessage("你好！"));
+messages.Add(OpenAIService.CreateSystemMessage("You are a helpful assistant."));
+messages.Add(OpenAIService.CreateUserMessage("Hello!"));
 
-// 发送请求
+// Send request
 string response = await openAIService.ChatCompletion(messages);
 ```
 
-### 流式响应
+### Streaming Response
 ```csharp
-// 创建配置
+// Create configuration
 var config = new ChatbotConfig 
 {
     useStreaming = true,
     onStreamingChunk = (chunk) => {
-        Debug.Log(chunk.content); // 实时显示响应内容
+        Debug.Log(chunk.content); // Display response content in real-time
     }
 };
 
-// 创建服务
+// Create service
 var chatbot = new ChatbotService(new OpenAIService(), config);
 
-// 发送消息
-await chatbot.SendMessage("生成一个长故事");
+// Send message
+await chatbot.SendMessage("Generate a long story");
 ```
 
 ### Tool Calling
 ```csharp
-// 定义工具
+// Define tools
 var tools = new List<Tool> 
 {
     new Tool 
     {
         name = "get_weather",
-        description = "获取天气信息",
+        description = "Get weather information",
         parameters = new 
         {
             type = "object",
             properties = new 
             {
-                location = new { type = "string", description = "位置" }
+                location = new { type = "string", description = "Location" }
             },
             required = new[] { "location" }
         }
     }
 };
 
-// 创建配置
+// Create configuration
 var config = new ChatbotConfig 
 {
     toolSet = new ToolSet(tools, async (toolCall) => {
-        // 实现工具调用逻辑
-        return "晴天，25度";
+        // Implement tool calling logic
+        return "Sunny, 25°C";
     })
 };
 
-// 创建服务
+// Create service
 var chatbot = new ChatbotService(new OpenAIService(), config);
 
-// 发送可能触发工具调用的消息
-await chatbot.SendMessage("北京今天天气怎么样？");
+// Send message that might trigger tool calling
+await chatbot.SendMessage("What's the weather like in Beijing today?");
 ```
 
-### 状态管理
+### State Management
 ```csharp
-// 订阅状态变更事件
+// Subscribe to state change events
 chatbot.OnStateChanged += (sender, args) => {
-    Debug.Log($"状态变更: {args.OldState} -> {args.NewState}");
-    Debug.Log($"消息ID: {args.MessageId}");
+    Debug.Log($"State changed: {args.OldState} -> {args.NewState}");
+    Debug.Log($"Message ID: {args.MessageId}");
 };
 
-// 获取消息状态
+// Get message state
 var messageState = chatbot.GetMessageState(messageId);
 
-// 获取所有pending消息
+// Get all pending messages
 var pendingMessages = chatbot.GetPendingMessages();
 
-// 中断恢复
+// Interruption recovery
 await chatbot.ResumeAsync(messageId);
 ```
 
-## 示例
+## Examples
 
-查看Samples文件夹获取完整示例:
-- 基础聊天实现
-- UI集成
-- Tool Calling示例
-- 流式响应演示
-- 状态管理示例
+Check the Samples folder for complete examples:
+- Basic chat implementation
+- UI integration
+- Tool Calling examples
+- Streaming response demonstration
+- State management examples
 
-## 错误处理
+## Error Handling
 
 ```csharp
 try 
 {
-    await chatbot.SendMessage("你好");
+    await chatbot.SendMessage("Hello");
 } 
 catch (LLMConfigurationException e) 
 {
-    // 处理配置错误
+    // Handle configuration errors
 } 
 catch (LLMValidationException e) 
 {
-    // 处理验证错误
+    // Handle validation errors
 } 
 catch (LLMResponseException e) 
 {
-    // 处理API响应错误
+    // Handle API response errors
 } 
 catch (LLMException e) 
 {
-    // 处理其他错误
+    // Handle other errors
 }
 ```
 
-## 许可
+## License
 
-本项目基于MIT许可证开源 - 详见LICENSE.md文件
+This project is open-sourced under the MIT License - see the LICENSE.md file for details
