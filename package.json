@@ -1,6 +1,6 @@
 {
   "name": "com.ziyu.unity_llm_api",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "displayName": "Unity LLM API",
   "description": "A Unity plugin for interacting with OpenAI and other Language Model APIs",
   "unity": "2021.3",

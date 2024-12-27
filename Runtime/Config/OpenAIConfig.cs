@@ -22,7 +22,7 @@ namespace UnityLLMAPI.Config
         [Header("API Configuration")]
         public string apiKey;
         public string apiBaseUrl = "https://api.openai.com/v1";
-        public string defaultModel = "gpt-3.5-turbo";
+        public string defaultModel = "gpt-4o-mini";
         
         [Header("Model Configuration")]
         [Range(0f, 2f)]

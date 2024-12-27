@@ -195,6 +195,7 @@ namespace UnityLLMAPI.Services
 
                 var currentMessage = CreateAssistantMessage("");
                 List<ToolCallChunk> currentToolCallChunks = new List<ToolCallChunk>();
+                List<ToolCall> streamingToolCalls = new();
 
                 await HttpClient.PostJsonStreamAsync(url, jsonRequest, config.apiKey, async line =>
                 {
@@ -228,12 +229,14 @@ namespace UnityLLMAPI.Services
                             if (!string.IsNullOrEmpty(delta?.content))
                             {
                                 currentMessage.content += delta.content;
-                                onChunk(currentMessage);
                             }
                             if (delta?.tool_calls != null)
                             {
                                 currentToolCallChunks.AddRange(delta.tool_calls);
+                                MergeToolCallChunks(currentToolCallChunks, ref streamingToolCalls);
+                                currentMessage.tool_calls = streamingToolCalls.ToArray();
                             }
+                            onChunk(currentMessage);
                         }
                     }
                     catch (Exception e) when (!(e is LLMException))
@@ -258,20 +261,31 @@ namespace UnityLLMAPI.Services
             }
         }
 
+        Dictionary<int, ToolCall> tmp_indexedToolCalls = new();
+        Dictionary<int, StringBuilder> tmp_indexedToolCallArgs = new();
+
         private ToolCall[] MergeToolCallChunks(List<ToolCallChunk> chunks)
         {
-            Dictionary<int, ToolCall> indexedToolCalls = new();
-            Dictionary<int, StringBuilder> indexedToolCallArgs = new();
+            List<ToolCall> toolCalls = new();
+            MergeToolCallChunks(chunks, ref toolCalls);
+            return toolCalls.ToArray();
+        }
+
+        private void MergeToolCallChunks(List<ToolCallChunk> chunks,ref List<ToolCall> toolCalls)
+        {
+            tmp_indexedToolCalls.Clear();
+            tmp_indexedToolCallArgs.Clear();
+            toolCalls ??= new List<ToolCall>();
             foreach (var chunk in chunks)
             {
-                if (!indexedToolCalls.TryGetValue(chunk.index, out var toolCall))
+                if (!tmp_indexedToolCalls.TryGetValue(chunk.index, out var toolCall))
                 {
-                    toolCall = new();
+                    toolCall = toolCalls.Find((x)=>x.id==chunk.id)??new ToolCall();
                     toolCall.type = chunk.type;
-                    toolCall.function = new();
-                    indexedToolCalls[chunk.index] = toolCall;
+                    toolCall.function ??= new();
+                    tmp_indexedToolCalls[chunk.index] = toolCall;
                     StringBuilder sb = new();
-                    indexedToolCallArgs[chunk.index] = sb;
+                    tmp_indexedToolCallArgs[chunk.index] = sb;
                 }
 
                 if (!string.IsNullOrEmpty(chunk.id))
@@ -286,16 +300,17 @@ namespace UnityLLMAPI.Services
 
                 if (chunk.function?.arguments != null)
                 {
-                    indexedToolCallArgs[chunk.index].Append(chunk.function?.arguments);
+                    tmp_indexedToolCallArgs[chunk.index].Append(chunk.function?.arguments);
                 }
             }
 
-            foreach (var (index,toolCall) in indexedToolCalls)
+            foreach (var (index,toolCall) in tmp_indexedToolCalls)
             {
-                toolCall.function.arguments = indexedToolCallArgs[index].ToString();
+                toolCall.function.arguments = tmp_indexedToolCallArgs[index].ToString();
             }
             
-            return indexedToolCalls.Values.ToArray();
+            toolCalls.Clear();
+            toolCalls.AddRange(tmp_indexedToolCalls.Values);
         }
 
         /// <summary>

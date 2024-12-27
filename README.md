@@ -13,7 +13,6 @@ A Unity plugin for integrating large language model APIs like OpenAI. Provides c
 - Comprehensive error handling
 - Configurable API parameters
 - Conversation history management
-- Custom JSON serialization
 - State management system
   - Real-time state tracking
   - State change event notifications

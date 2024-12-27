@@ -14,7 +14,7 @@ namespace UnityLLMAPI.Services
     /// </summary>
     public class ChatbotService : IChatbotService
     {
-        private readonly OpenAIService service;
+        private readonly ILLMService service;
         private ChatSession session;
         private readonly ChatbotConfig config;
 
@@ -45,7 +45,7 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Initialize a new chatbot service
         /// </summary>
-        public ChatbotService(OpenAIService service, ChatbotConfig config)
+        public ChatbotService(ILLMService service, ChatbotConfig config)
             : this(service, config, new ChatSession())
         {
         }
@@ -53,7 +53,7 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Initialize a chatbot service with an existing session
         /// </summary>
-        public ChatbotService(OpenAIService service, ChatbotConfig config, ChatSession session)
+        public ChatbotService(ILLMService service, ChatbotConfig config, ChatSession session)
         {
             this.service = service ?? throw new ArgumentNullException(nameof(service));
             this.config = config ?? throw new ArgumentNullException(nameof(config));
