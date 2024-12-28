@@ -74,7 +74,7 @@ namespace UnityLLMAPI.Editor.Tests.Json
             {
                 Name = "Test",
                 Age = 25,
-                Properties = new Dictionary<string, string>
+                Attributes = new Dictionary<string, string>
                 {
                     { "city", "New York" }
                 }
@@ -87,7 +87,7 @@ namespace UnityLLMAPI.Editor.Tests.Json
             Assert.AreEqual(1, deserializedList.Count);
             Assert.AreEqual("Test", deserializedList[0].Name);
             Assert.AreEqual(25, deserializedList[0].Age);
-            Assert.AreEqual("New York", deserializedList[0].Properties["city"]);
+            Assert.AreEqual("New York", deserializedList[0].Attributes["city"]);
         }
         
         [Serializable]
@@ -315,7 +315,9 @@ namespace UnityLLMAPI.Editor.Tests.Json
         {
             public string Name;
             public int Age;
-            public Dictionary<string, string> Properties;
+            public Dictionary<string, string> Attributes;
+
+            public Dictionary<string, string> Properties { get; set; }
         }
         
         [Test]
@@ -347,7 +349,7 @@ namespace UnityLLMAPI.Editor.Tests.Json
                     {
                         Name = "John",
                         Age = 30,
-                        Properties = new Dictionary<string, string>
+                        Attributes = new Dictionary<string, string>
                         {
                             { "city", "New York" },
                             { "job", "Engineer" }
@@ -362,9 +364,9 @@ namespace UnityLLMAPI.Editor.Tests.Json
             Assert.AreEqual(1, deserializedDict.Count);
             Assert.AreEqual("John", deserializedDict["person1"].Name);
             Assert.AreEqual(30, deserializedDict["person1"].Age);
-            Assert.AreEqual(2, deserializedDict["person1"].Properties.Count);
-            Assert.AreEqual("New York", deserializedDict["person1"].Properties["city"]);
-            Assert.AreEqual("Engineer", deserializedDict["person1"].Properties["job"]);
+            Assert.AreEqual(2, deserializedDict["person1"].Attributes.Count);
+            Assert.AreEqual("New York", deserializedDict["person1"].Attributes["city"]);
+            Assert.AreEqual("Engineer", deserializedDict["person1"].Attributes["job"]);
         }
 
         [Test]
@@ -386,6 +388,67 @@ namespace UnityLLMAPI.Editor.Tests.Json
             Assert.AreEqual("Line1\\nLine2\\tTabbed\\rReturn\\\\Backslash", deserializedDict["mixed_escapes"]);
             Assert.AreEqual("Unicode: !\"\\", deserializedDict["unicode_mix"]);
             Assert.AreEqual("\b\f\n\r\t\\\"/", deserializedDict["all_controls"]);
+        }
+
+        [Test]
+        public void TestPropertySerialization()
+        {
+            var testObj = new TestObject
+            {
+                Name = "Test",
+                Age = 25,
+                Properties = new Dictionary<string, string>
+                {
+                    { "city", "New York" }
+                }
+            };
+
+            // Test without property serialization
+            var options = new FormatOptions { SerializeProperties = false };
+            string json = JsonSerializer.Serialize(testObj, options);
+            Assert.AreEqual("{\"Name\":\"Test\",\"Age\":25}", json);
+
+            // Test with property serialization
+            options.SerializeProperties = true;
+            json = JsonSerializer.Serialize(testObj, options);
+            Assert.AreEqual("{\"Name\":\"Test\",\"Age\":25,\"Properties\":{\"city\":\"New York\"}}", json);
+        }
+
+        [Test]
+        public void TestAnonymousTypeSerialization()
+        {
+            // 测试基本匿名类型
+            var anon1 = new { Name = "Test", Value = 123 };
+            string json = JsonSerializer.Serialize(anon1);
+            Assert.AreEqual("{\"Name\":\"Test\",\"Value\":123}", json);
+
+            // 测试嵌套匿名类型
+            var anon2 = new
+            {
+                Id = 1,
+                Details = new { Description = "Nested", Count = 2 }
+            };
+            json = JsonSerializer.Serialize(anon2);
+            Assert.AreEqual("{\"Id\":1,\"Details\":{\"Description\":\"Nested\",\"Count\":2}}", json);
+
+            // 测试包含数组的匿名类型
+            var anon3 = new
+            {
+                Items = new[] { 1, 2, 3 },
+                Info = new { Name = "ArrayTest" }
+            };
+            json = JsonSerializer.Serialize(anon3);
+            Assert.AreEqual("{\"Items\":[1,2,3],\"Info\":{\"Name\":\"ArrayTest\"}}", json);
+
+            // 测试空匿名类型
+            var anon4 = new { };
+            json = JsonSerializer.Serialize(anon4);
+            Assert.AreEqual("{}", json);
+
+            // 测试包含特殊字符的属性名
+            var anon5 = new { @class = "special", @event = "test" };
+            json = JsonSerializer.Serialize(anon5);
+            Assert.AreEqual("{\"class\":\"special\",\"event\":\"test\"}", json);
         }
     }
 }

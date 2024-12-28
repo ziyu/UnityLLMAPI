@@ -6,15 +6,15 @@ namespace UnityLLMAPI.Utils.Json
 {
     public static class JsonDeserializer
     {
-        public static T Deserialize<T>(string json)
+        public static T Deserialize<T>(string json, FormatOptions options = null)
         {
             if (string.IsNullOrEmpty(json)) return default;
             
             var reader = new JsonReader(json);
-            return (T)DeserializeValue(typeof(T), reader);
+            return (T)DeserializeValue(typeof(T), reader, options ?? JsonConverter.DefaultOptions);
         }
 
-        private static object DeserializeValue(Type type, JsonReader reader)
+        private static object DeserializeValue(Type type, JsonReader reader, FormatOptions options)
         {
             if (type == null)
             {
@@ -39,15 +39,15 @@ namespace UnityLLMAPI.Utils.Json
                 case '{':
                     if (IsDictionaryType(type))
                     {
-                        return DeserializeDictionary(type, reader);
+                        return DeserializeDictionary(type, reader,options);
                     }
-                    return DeserializeObject(type, reader);
+                    return DeserializeObject(type, reader,options);
                 case '[': 
                     if (IsListType(type))
                     {
-                        return DeserializeList(type, reader);
+                        return DeserializeList(type, reader,options);
                     }
-                    return DeserializeArray(type, reader);
+                    return DeserializeArray(type, reader,options);
                 case 't':
                 case 'f': 
                     if(type==typeof(bool)||type==typeof(object))
@@ -118,7 +118,7 @@ namespace UnityLLMAPI.Utils.Json
             return false;
         }
 
-        private static object DeserializeList(Type type, JsonReader reader)
+        private static object DeserializeList(Type type, JsonReader reader,FormatOptions options)
         {
             if (type == null)
             {
@@ -154,14 +154,14 @@ namespace UnityLLMAPI.Utils.Json
                     continue;
                 }
                 
-                object element = DeserializeValue(elementType, reader);
+                object element = DeserializeValue(elementType, reader, options);
                 addMethod.Invoke(list, new[] { element });
             }
             
             return list;
         }
 
-        private static object DeserializeDictionary(Type type, JsonReader reader)
+        private static object DeserializeDictionary(Type type, JsonReader reader,FormatOptions options)
         {
             if (type == null)
             {
@@ -206,14 +206,14 @@ namespace UnityLLMAPI.Utils.Json
                 string key = reader.ReadString();
                 reader.Expect(':');
                 
-                object value = DeserializeValue(valueType, reader);
+                object value = DeserializeValue(valueType, reader,options);
                 addMethod.Invoke(dictionary, new[] { key, value });
             }
             
             return dictionary;
         }
 
-        private static object DeserializeObject(Type type, JsonReader reader)
+        private static object DeserializeObject(Type type, JsonReader reader, FormatOptions options)
         {
             if (type == null)
             {
@@ -224,6 +224,9 @@ namespace UnityLLMAPI.Utils.Json
             
             var result = Activator.CreateInstance(type);
             var fields = GetFieldMap(type);
+            var properties = options.SerializeProperties
+                ? GetPropertyMap(type)
+                : null;
             
             while (true)
             {
@@ -240,13 +243,21 @@ namespace UnityLLMAPI.Utils.Json
                     continue;
                 }
                 
-                string fieldName = reader.ReadString();
+                string memberName = reader.ReadString();
                 reader.Expect(':');
                 
-                if (fields.TryGetValue(fieldName, out FieldInfo field))
+                if (fields.TryGetValue(memberName, out FieldInfo field))
                 {
-                    object value = DeserializeValue(field.FieldType, reader);
+                    object value = DeserializeValue(field.FieldType, reader, options);
                     field.SetValue(result, value);
+                }
+                else if (properties != null && properties.TryGetValue(memberName, out PropertyInfo property))
+                {
+                    if (property.CanWrite)
+                    {
+                        object value = DeserializeValue(property.PropertyType, reader, options);
+                        property.SetValue(result, value);
+                    }
                 }
                 else
                 {
@@ -272,7 +283,25 @@ namespace UnityLLMAPI.Utils.Json
             return fields;
         }
 
-        private static Array DeserializeArray(Type type, JsonReader reader)
+        private static Dictionary<string, PropertyInfo> GetPropertyMap(Type type)
+        {
+            if (type == null)
+            {
+                throw new JsonException("Cannot get property map for null type");
+            }
+
+            var properties = new Dictionary<string, PropertyInfo>();
+            foreach (var property in type.GetProperties())
+            {
+                if (property.CanRead && property.CanWrite)
+                {
+                    properties[property.Name] = property;
+                }
+            }
+            return properties;
+        }
+
+        private static Array DeserializeArray(Type type, JsonReader reader,FormatOptions options)
         {
             if (type == null)
             {
@@ -304,7 +333,7 @@ namespace UnityLLMAPI.Utils.Json
                     continue;
                 }
                 
-                elements.Add(DeserializeValue(elementType, reader));
+                elements.Add(DeserializeValue(elementType, reader,options));
             }
             
             Array array = Array.CreateInstance(elementType, elements.Count);

@@ -3,21 +3,22 @@ using System.Text;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using UnityEngine;
 
 namespace UnityLLMAPI.Utils.Json
 {
     public static class JsonSerializer
     {
-        public static string Serialize(object value)
+        public static string Serialize(object value, FormatOptions options = null)
         {
             if (value == null) return "null";
 
             var sb = new StringBuilder();
-            SerializeValue(value, sb);
+            SerializeValue(value, sb, options ?? JsonConverter.DefaultOptions);
             return sb.ToString();
         }
 
-        private static void SerializeValue(object value, StringBuilder sb)
+        private static void SerializeValue(object value, StringBuilder sb, FormatOptions options)
         {
             if (value == null)
             {
@@ -40,18 +41,18 @@ namespace UnityLLMAPI.Utils.Json
                     sb.Append(value.ToString());
                     break;
                 case Array arr:
-                    SerializeArray(arr, sb);
+                    SerializeArray(arr, sb,options);
                     break;
                 case IDictionary dict:
-                    SerializeDictionary(dict, sb);
+                    SerializeDictionary(dict, sb,options);
                     break;
                 case IEnumerable enumerable:
-                    SerializeEnumerable(enumerable, sb);
+                    SerializeEnumerable(enumerable, sb,options);
                     break;
                 default:
                     if (value.GetType().IsClass)
                     {
-                        SerializeObject(value, sb);
+                        SerializeObject(value, sb,options);
                     }
                     break;
             }
@@ -92,33 +93,33 @@ namespace UnityLLMAPI.Utils.Json
             sb.Append('"');
         }
 
-        private static void SerializeArray(Array arr, StringBuilder sb)
+        private static void SerializeArray(Array arr, StringBuilder sb, FormatOptions options)
         {
             sb.Append('[');
             bool first = true;
             foreach (object item in arr)
             {
                 if (!first) sb.Append(',');
-                SerializeValue(item, sb);
+                SerializeValue(item, sb,options);
                 first = false;
             }
             sb.Append(']');
         }
 
-        private static void SerializeEnumerable(IEnumerable enumerable, StringBuilder sb)
+        private static void SerializeEnumerable(IEnumerable enumerable, StringBuilder sb, FormatOptions options)
         {
             sb.Append('[');
             bool first = true;
             foreach (object item in enumerable)
             {
                 if (!first) sb.Append(',');
-                SerializeValue(item, sb);
+                SerializeValue(item, sb,options);
                 first = false;
             }
             sb.Append(']');
         }
 
-        private static void SerializeDictionary(IDictionary dict, StringBuilder sb)
+        private static void SerializeDictionary(IDictionary dict, StringBuilder sb, FormatOptions options)
         {
             sb.Append('{');
             bool first = true;
@@ -132,7 +133,7 @@ namespace UnityLLMAPI.Utils.Json
                 {
                     SerializeString(key, sb);
                     sb.Append(':');
-                    SerializeValue(entry.Value, sb);
+                    SerializeValue(entry.Value, sb,options);
                     first = false;
                 }
                 else
@@ -144,24 +145,58 @@ namespace UnityLLMAPI.Utils.Json
             sb.Append('}');
         }
 
-        private static void SerializeObject(object obj, StringBuilder sb)
+        private static bool IsAnonymousType(Type type)
+        {
+            bool hasCompilerGeneratedAttribute = type.GetCustomAttributes(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false).Length > 0;
+            bool nameContainsAnonymousType = type.Name.Contains("AnonymousType");
+            bool isNotPublic = !type.IsPublic;
+            
+            return hasCompilerGeneratedAttribute && nameContainsAnonymousType && isNotPublic;
+        }
+
+        private static void SerializeObject(object obj, StringBuilder sb, FormatOptions options)
         {
             sb.Append('{');
             bool first = true;
 
-            var fields = obj.GetType().GetFields(BindingFlags.Instance|BindingFlags.Public);
+            var type = obj.GetType();
+            // Get fields and properties
+            var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public);
+            var properties = IsAnonymousType(type) || options.SerializeProperties
+                ? type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                : null;
+
+            // Handle fields
             foreach (var field in fields)
             {
                 var value = field.GetValue(obj);
-                
-                // Only include the field if it's not null or if it's a non-string type
                 if (value != null)
                 {
                     if (!first) sb.Append(',');
                     SerializeString(field.Name, sb);
                     sb.Append(':');
-                    SerializeValue(value, sb);
+                    SerializeValue(value, sb, options);
                     first = false;
+                }
+            }
+
+            // Handle properties if enabled
+            if (properties!=null)
+            {
+                foreach (var property in properties)
+                {
+                    if (property.CanRead)
+                    {
+                        var value = property.GetValue(obj);
+                        if (value != null)
+                        {
+                            if (!first) sb.Append(',');
+                            SerializeString(property.Name, sb);
+                            sb.Append(':');
+                            SerializeValue(value, sb, options);
+                            first = false;
+                        }
+                    }
                 }
             }
 
