@@ -37,23 +37,9 @@ namespace UnityLLMAPI.Config
         public Func<ChatMessageInfo,ToolCall, Task<bool>> shouldExecuteTool;
 
         /// <summary>
-        /// Default model to use for chat completion
-        /// </summary>
-        public string defaultModel;
-
-        /// <summary>
         /// Message to use when a tool call is skipped
         /// </summary>
         public string skipToolMessage = "Tool execution skipped by user";
-
-        /// <summary>
-        /// Create a new ChatbotConfig with default values
-        /// </summary>
-        public ChatbotConfig()
-        {
-            useStreaming = false;
-            defaultModel = null;
-        }
 
         /// <summary>
         /// Validate the configuration

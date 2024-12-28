@@ -50,7 +50,9 @@ namespace UnityLLMAPI.Utils.Json
                     SerializeEnumerable(enumerable, sb,options);
                     break;
                 default:
-                    if (value.GetType().IsClass)
+                    var type = value.GetType();
+                    // Handle both classes and structs (value types)
+                    if (type.IsClass || type.IsValueType)
                     {
                         SerializeObject(value, sb,options);
                     }

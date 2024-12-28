@@ -166,7 +166,7 @@ namespace UnityLLMAPI.Services
             try
             {
                 // Get response from OpenAI
-                ChatMessage response = await GetResponse(currentMessageInfo, @params.Model ?? config.defaultModel,
+                ChatMessage response = await GetResponse(currentMessageInfo, @params.Model,
                     @params.CancellationToken);
                 if (response != null)
                 {

@@ -12,6 +12,26 @@ namespace UnityLLMAPI.Utils
     /// </summary>
     public class HttpClient
     {
+
+        static LLMNetworkException LogRequestError(UnityWebRequest request)
+        {
+            string errorMessage = $"HTTP Error: {request.error}";
+            string responseContent = request.downloadHandler?.text;
+            string responseError = request.downloadHandler?.error;
+            LLMLogging.Log(errorMessage, LogType.Error);
+                        
+            if (!string.IsNullOrEmpty(responseContent))
+            {
+                LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
+            }
+            if (!string.IsNullOrEmpty(responseError))
+            {
+                LLMLogging.Log($"Response error: {responseError}", LogType.Error);
+            }
+
+            return new LLMNetworkException(errorMessage + ":" + responseContent);
+        }
+
         /// <summary>
         /// Send a POST request with JSON data
         /// </summary>
@@ -62,16 +82,8 @@ namespace UnityLLMAPI.Utils
                     }
                     else if (request.result != UnityWebRequest.Result.ConnectionError || !cancellationToken.IsCancellationRequested)
                     {
-                        string errorMessage = $"HTTP Error: {request.error}";
-                        string responseContent = request.downloadHandler?.text;
-                        LLMLogging.Log(errorMessage, LogType.Error);
-                        
-                        if (!string.IsNullOrEmpty(responseContent))
-                        {
-                            LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
-                        }
-
-                        tcs.TrySetException(new LLMNetworkException(errorMessage+":"+responseContent));
+                        var exception = LogRequestError(request);
+                        tcs.TrySetException(exception);
                     }
                 };
 
@@ -149,9 +161,8 @@ namespace UnityLLMAPI.Utils
                     }
                     else if (request.result != UnityWebRequest.Result.ConnectionError || !cancellationToken.IsCancellationRequested)
                     {
-                        string errorMessage = $"HTTP Error: {request.error}";
-                        LLMLogging.Log(errorMessage, LogType.Error);
-                        tcs.TrySetException(new LLMNetworkException(errorMessage));
+                        var exception = LogRequestError(request);
+                        tcs.TrySetException(exception);
                     }
                 };
 
@@ -221,16 +232,8 @@ namespace UnityLLMAPI.Utils
                     }
                     else if (request.result != UnityWebRequest.Result.ConnectionError || !cancellationToken.IsCancellationRequested)
                     {
-                        string errorMessage = $"HTTP Error: {request.error}";
-                        string responseContent = request.downloadHandler?.text;
-                        LLMLogging.Log(errorMessage, LogType.Error);
-                        
-                        if (!string.IsNullOrEmpty(responseContent))
-                        {
-                            LLMLogging.Log($"Response content: {responseContent}", LogType.Error);
-                        }
-
-                        tcs.TrySetException(new LLMNetworkException(errorMessage+":"+responseContent));
+                        var exception = LogRequestError(request);
+                        tcs.TrySetException(exception);
                     }
                 };
 
@@ -314,14 +317,13 @@ namespace UnityLLMAPI.Utils
 
         protected override byte[] GetData()
         {
-            // 返回最后一行数据的字节数组
-            return string.IsNullOrEmpty(lastLine) ? new byte[0] : Encoding.UTF8.GetBytes(lastLine);
+            var bufferData = buffer.ToString().Trim();
+            return string.IsNullOrEmpty(bufferData) ? new byte[0] : Encoding.UTF8.GetBytes(bufferData);
         }
 
         protected override string GetText()
         {
-            // 返回最后一行数据
-            return lastLine;
+            return buffer.ToString().Trim();;
         }
 
         protected override void CompleteContent()

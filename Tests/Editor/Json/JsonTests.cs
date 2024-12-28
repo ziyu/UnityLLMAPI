@@ -414,6 +414,39 @@ namespace UnityLLMAPI.Editor.Tests.Json
             Assert.AreEqual("{\"Name\":\"Test\",\"Age\":25,\"Properties\":{\"city\":\"New York\"}}", json);
         }
 
+        // Test struct for serialization
+        public struct TestStruct
+        {
+            public int Number;
+            public string Text;
+            public float Value;
+            public Dictionary<string, int> Data;
+            public bool Flag { get; set; }
+        }
+
+        [Test]
+        public void TestStructSerialization()
+        {
+            // Create test struct
+            var testStruct = new TestStruct
+            {
+                Number = 42,
+                Text = "Hello",
+                Value = 3.14f,
+                Data = new Dictionary<string, int> { { "key", 100 } },
+                Flag = true
+            };
+
+            // Test serialization
+            string json = JsonSerializer.Serialize(testStruct);
+            Assert.AreEqual("{\"Number\":42,\"Text\":\"Hello\",\"Value\":3.14,\"Data\":{\"key\":100}}", json);
+
+            // Test with FormatOptions.SerializeProperties = true
+            var options = new FormatOptions { SerializeProperties = true };
+            json = JsonSerializer.Serialize(testStruct, options);
+            Assert.AreEqual("{\"Number\":42,\"Text\":\"Hello\",\"Value\":3.14,\"Data\":{\"key\":100},\"Flag\":true}", json);
+        }
+
         [Test]
         public void TestAnonymousTypeSerialization()
         {
