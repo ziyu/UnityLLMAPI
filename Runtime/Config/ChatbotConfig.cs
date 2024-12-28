@@ -34,7 +34,7 @@ namespace UnityLLMAPI.Config
         /// <summary>
         /// Async callback to decide whether to execute a tool call
         /// </summary>
-        public Func<ToolCall, Task<bool>> shouldExecuteTool;
+        public Func<ChatMessageInfo,ToolCall, Task<bool>> shouldExecuteTool;
 
         /// <summary>
         /// Default model to use for chat completion

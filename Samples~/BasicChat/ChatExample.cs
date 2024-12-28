@@ -501,7 +501,7 @@ namespace UnityLLMAPI.Examples
             }
         }
 
-        private async Task<bool> ShouldExecuteTool(ToolCall toolCall)
+        private async Task<bool> ShouldExecuteTool(ChatMessageInfo messageInfo,ToolCall toolCall)
         {
             // Create a new task completion source
             toolConfirmationTask = new TaskCompletionSource<bool>();

@@ -193,7 +193,7 @@ namespace UnityLLMAPI.Services
                 LLMLogging.Log($"Request Body: {jsonRequest}", LogType.Log);
                 LLMLogging.Log("Starting streaming request", LogType.Log);
 
-                var currentMessage = CreateAssistantMessage("");
+                var currentMessage = ChatMessage.CreateAssistantMessage("");
                 List<ToolCallChunk> currentToolCallChunks = new List<ToolCallChunk>();
                 List<ToolCall> streamingToolCalls = new();
 
@@ -336,25 +336,28 @@ namespace UnityLLMAPI.Services
         /// <summary>
         /// Create a system message
         /// </summary>
+        [Obsolete("Use ChatMessage.CreateSystemMessage Instead.")]
         public static ChatMessage CreateSystemMessage(string content)
         {
-            return new ChatMessage("system", content);
+            return ChatMessage.CreateSystemMessage(content);
         }
 
         /// <summary>
         /// Create a user message
         /// </summary>
+        [Obsolete("Use ChatMessage.CreateUserMessage Instead.")]
         public static ChatMessage CreateUserMessage(string content)
         {
-            return new ChatMessage("user", content);
+            return ChatMessage.CreateUserMessage(content);
         }
 
         /// <summary>
         /// Create an assistant message
         /// </summary>
+        [Obsolete("Use ChatMessage.CreateAssistantMessage Instead.")]
         public static ChatMessage CreateAssistantMessage(string content)
         {
-            return new ChatMessage("assistant", content);
+            return ChatMessage.CreateAssistantMessage(content);
         }
     }
 }

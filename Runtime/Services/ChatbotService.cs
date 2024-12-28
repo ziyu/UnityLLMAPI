@@ -89,7 +89,7 @@ namespace UnityLLMAPI.Services
             }
             if (!string.IsNullOrEmpty(systemPrompt))
             {
-                return OpenAIService.CreateSystemMessage(systemPrompt);
+                return ChatMessage.CreateSystemMessage(systemPrompt);
             }
             return null;
         }
@@ -153,7 +153,7 @@ namespace UnityLLMAPI.Services
 
             IsPending = true;
             // Add user message to history
-            var userMessage = OpenAIService.CreateUserMessage(message);
+            var userMessage = ChatMessage.CreateUserMessage(message);
             var userMessageInfo = session.AddMessage(userMessage, true);
             UpdateMessageState(userMessageInfo.messageId, ChatMessageState.Sending);
 
@@ -284,14 +284,14 @@ namespace UnityLLMAPI.Services
             {
                 return null;
             }
-            var responsMessageInfo = session.AddMessage(response,true);
+            var responseMessageInfo = session.AddMessage(response,true);
             var state = ChatMessageState.Succeeded;
             if (response.tool_calls is { Length: > 0 })
             {
                 state = ChatMessageState.ProcessingTool;
             }
-            UpdateMessageState(responsMessageInfo.messageId,state);
-            return responsMessageInfo;
+            UpdateMessageState(responseMessageInfo.messageId,state);
+            return responseMessageInfo;
         }
 
         private async Task<ChatMessageInfo> HandleToolCalls(ChatMessageInfo pendingMessageInfo, CancellationToken cancellationToken)
@@ -316,7 +316,7 @@ namespace UnityLLMAPI.Services
                 bool shouldExecute = true;
                 if (config.shouldExecuteTool != null)
                 {
-                    shouldExecute = await config.shouldExecuteTool(toolCall);
+                    shouldExecute = await config.shouldExecuteTool(pendingMessageInfo,toolCall);
                     if(!CheckIfStateInvalid())break;
                 }
 

@@ -9,6 +9,14 @@ namespace UnityLLMAPI.Models
     [Serializable]
     public class ChatMessage
     {
+        public static class Roles
+        {
+            public static readonly string System = "system";
+            public static readonly string User = "user";
+            public static readonly string Assistant = "assistant";
+            public static readonly string Tool = "tool";
+        }
+        
         /// <summary>
         /// Role of the message sender (system, user, assistant, tool)
         /// </summary>
@@ -67,11 +75,35 @@ namespace UnityLLMAPI.Models
                 throw new ArgumentException("Tool name cannot be empty", nameof(name));
             }
 
-            return new ChatMessage("tool", content)
+            return new ChatMessage(Roles.Tool, content)
             {
                 tool_call_id = toolCallId,
                 name = name
             };
+        }
+        
+        /// <summary>
+        /// Create a system message
+        /// </summary>
+        public static ChatMessage CreateSystemMessage(string content)
+        {
+            return new ChatMessage(Roles.System, content);
+        }
+
+        /// <summary>
+        /// Create a user message
+        /// </summary>
+        public static ChatMessage CreateUserMessage(string content)
+        {
+            return new ChatMessage(Roles.User, content);
+        }
+
+        /// <summary>
+        /// Create an assistant message
+        /// </summary>
+        public static ChatMessage CreateAssistantMessage(string content)
+        {
+            return new ChatMessage(Roles.Assistant, content);
         }
     }
 
