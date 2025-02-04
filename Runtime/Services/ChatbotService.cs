@@ -317,7 +317,6 @@ namespace UnityLLMAPI.Services
                 if (config.shouldExecuteTool != null)
                 {
                     shouldExecute = await config.shouldExecuteTool(pendingMessageInfo,toolCall);
-                    if(!CheckIfStateInvalid())break;
                 }
 
                 if (!shouldExecute)
@@ -329,6 +328,7 @@ namespace UnityLLMAPI.Services
                     );
                     var skipResponseInfo = session.AddMessage(skipResponse,true);
                     UpdateMessageState(skipResponseInfo.messageId, ChatMessageState.Succeeded);
+                    if(!CheckIfStateInvalid())break;
                     continue;
                 }
 
